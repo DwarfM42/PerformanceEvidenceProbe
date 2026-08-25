@@ -1,0 +1,2 @@
+{"record_type":"launch_assigned_non_destructive_job","kill_on_job_close_enabled":false,"pid":16524}
+{"record_type":"process_exit_observed","exit_code":0,"pid":16524,"terminal_counter_fidelity":"attempted_after_exit","terminal_kernel_cpu_time_ns":15625000,"terminal_read_bytes":4234,"terminal_user_cpu_time_ns":0,"terminal_write_bytes":0}

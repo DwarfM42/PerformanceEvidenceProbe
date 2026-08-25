@@ -1,0 +1,2 @@
+# Preserve initial Probe source bytes in Git blobs; do not apply line-ending conversion.
+* -text

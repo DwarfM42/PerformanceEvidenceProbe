@@ -1,0 +1,17 @@
+# Rust build output
+target/
+cargo-target/
+cargo-home/
+
+# Task-local temporary and measurement output
+tmp/
+runtime-output/
+measurement-output/
+qualification-output/
+evidence-output/
+
+# Local editor and OS metadata
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
