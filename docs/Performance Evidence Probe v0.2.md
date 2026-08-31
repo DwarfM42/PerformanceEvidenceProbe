@@ -2335,7 +2335,7 @@ EVIDENCE_INVALID
 
 ```text
 perf-probe run \
-  --output D:/AgentData/perf-evidence \
+  --output ./evidence-output \
   --profile broad \
   --interval 500ms \
   -- <target command>
@@ -2344,7 +2344,7 @@ perf-probe run \
 ```text
 perf-probe attach \
   --pid 12345 \
-  --output D:/AgentData/perf-evidence
+  --output ./evidence-output
 ```
 
 ```text

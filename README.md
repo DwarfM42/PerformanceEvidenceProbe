@@ -13,13 +13,19 @@ This is a measurement collector, not a profiler, debugger, or automatic performa
 
 ## Build
 
-Install a current Rust toolchain on Windows, then run:
+Install a current Rust toolchain and use the repository wrapper from Git Bash:
 
 ```bash
-cargo build --release --locked
+bash scripts/cargo-local.sh build --release --locked
 ```
 
-The executable is written to `target\release\perf-probe.exe` unless `CARGO_TARGET_DIR` is set.
+The wrapper overrides inherited Cargo and temporary-directory variables. It keeps
+the Cargo home in `cargo-home/`, build output in `target/`, and temporary files
+in `tmp/`, all beneath this checkout. These local directories are ignored by Git.
+Do not invoke Cargo directly for this repository when the surrounding shell may
+set `CARGO_HOME`, `CARGO_TARGET_DIR`, `TEMP`, `TMP`, or `TMPDIR` elsewhere.
+
+The release executable is `target/release/perf-probe.exe`.
 
 ## Basic use
 
@@ -28,13 +34,13 @@ The executable is written to `target\release\perf-probe.exe` unless `CARGO_TARGE
 Use `--` before the target command. `--output` is the parent directory for a newly created evidence bundle.
 
 ```bash
-cargo run --release -- run --output .\evidence -- cmd.exe /c "your-command-here"
+bash scripts/cargo-local.sh run --release -- run --output ./evidence-output -- cmd.exe /c "your-command-here"
 ```
 
 You can set a bounded retained-process-handle limit when required:
 
 ```bash
-cargo run --release -- run --output .\evidence --max-retained-process-handles 256 -- cmd.exe /c "your-command-here"
+bash scripts/cargo-local.sh run --release -- run --output ./evidence-output --max-retained-process-handles 256 -- cmd.exe /c "your-command-here"
 ```
 
 ### Attach to an existing process
@@ -42,7 +48,7 @@ cargo run --release -- run --output .\evidence --max-retained-process-handles 25
 Default attach is observation-only and waits until the specified process exits.
 
 ```bash
-cargo run --release -- attach --pid 12345 --output .\evidence
+bash scripts/cargo-local.sh run --release -- attach --pid 12345 --output ./evidence-output
 ```
 
 `--attach-job` is intentionally unsupported in the current CLI and fails closed.
@@ -52,7 +58,7 @@ cargo run --release -- attach --pid 12345 --output .\evidence
 Regenerate `summary.json` from a saved bundle's raw NDJSON streams:
 
 ```bash
-cargo run --release -- summarize --bundle .\evidence\<bundle-directory>
+bash scripts/cargo-local.sh run --release -- summarize --bundle ./evidence-output/<bundle-directory>
 ```
 
 The summary is reconstructed from persisted raw evidence and has deterministic serialization for identical input streams.
@@ -71,9 +77,9 @@ The NDJSON streams contain one UTF-8 JSON record per line. Readers may discard o
 ## Verify a checkout
 
 ```bash
-cargo fmt --check
-cargo test --all-targets --locked -- --nocapture
-cargo build --release --locked
+bash scripts/cargo-local.sh fmt --check
+bash scripts/cargo-local.sh test --all-targets --locked -- --nocapture
+bash scripts/cargo-local.sh build --release --locked
 ```
 
 ## Documentation

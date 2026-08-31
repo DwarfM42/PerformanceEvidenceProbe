@@ -1,2 +1,3 @@
-# Preserve initial Probe source bytes in Git blobs; do not apply line-ending conversion.
-* -text
+# Preserve Probe source bytes in Git blobs; do not apply line-ending conversion.
+# Existing documents use CRLF, which is valid source data rather than trailing whitespace.
+* -text whitespace=cr-at-eol
