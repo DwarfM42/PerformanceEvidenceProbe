@@ -13,6 +13,10 @@ jobs:
   windows-ci:
     name: windows-ci
     runs-on: windows-latest
+    # These tests launch and observe real Windows process trees. Keep each
+    # integration-test process set isolated instead of competing in parallel.
+    env:
+      RUST_TEST_THREADS: "1"
     defaults:
       run:
         shell: bash
