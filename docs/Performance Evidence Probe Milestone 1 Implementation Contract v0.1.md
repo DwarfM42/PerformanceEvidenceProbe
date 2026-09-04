@@ -1,9 +1,14 @@
 # Performance Evidence Probe
-# Milestone 1 Implementation Contract v0.1
+# Milestone 1 Implementation Contract v0.1 (historical technical contract)
+
+> This retained contract records the Milestone 1 design/acceptance boundary.
+> For current behavior, the implementation source and tests, root
+> [README](../README.md), [evidence schema](EVIDENCE-SCHEMA-DRAFT.md), and
+> [known limitations](KNOWN-LIMITATIONS.md) take precedence.
 
 ## 0. Authority
 
-**Parent specification:** Performance Evidence Probe Specification v0.2.1  
+**Historical parent specification:** Performance Evidence Probe Specification v0.2.1
 **Scope:** Milestone 1 only  
 **Primary platform:** Windows 10/11 x64  
 **Implementation:** Rust-first  
@@ -939,7 +944,7 @@ Job total process countとobserved identity countの差を偽identityで補完�
 
 Milestone 1 completion後、正式schema freeze前に、
 
-既存`canonical_monitor.py`または別独立系列とprivate bytes等を比較する。
+独立に保守された別系列とprivate bytes等を比較する。
 
 この比較はMilestone 1 completionそのものの必須gateではない。
 
@@ -1015,7 +1020,7 @@ automatic performance diagnosis
 graph UI
 web UI
 automatic optimization
-full CloseRAG phase adapter
+product-specific phase adapter
 strict-memory qualification certification
 ```
 
@@ -1023,26 +1028,7 @@ scope creepさせない。
 
 ---
 
-# 41. No CloseRAG Production Changes
-
-Milestone 1実装のために、
-
-```text
-CloseRAG production code
-Generation format
-ingestion behaviour
-retrieval behaviour
-Product DB
-current qualification evidence
-```
-
-を変更してはならない。
-
-既存CloseRAGの観測は外部から行う。
-
----
-
-# 42. STOP Conditions
+# 41. STOP Conditions
 
 以下の場合のみ安全停止してよい。
 

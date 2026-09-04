@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 description = "Windows-first raw performance evidence collector"
 license = "MIT"
+repository = "https://github.com/DwarfM42/PerformanceEvidenceProbe"
+readme = "README.md"
 
 [lib]
 name = "perf_evidence_probe"

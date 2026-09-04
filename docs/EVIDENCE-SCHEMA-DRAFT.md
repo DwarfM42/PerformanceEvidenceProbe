@@ -1,53 +1,96 @@
 # Evidence schema — draft (`perf-evidence-v1-draft`)
 
-> **Status:** implementation draft, not a frozen interchange contract. The authoritative Milestone 1 contract is not present in this repository, so this document describes the implemented surface only.
+> **Status:** implemented draft, not a frozen interchange contract. This
+> document describes the current public output surface; the root
+> [README](../README.md) and [known limitations](KNOWN-LIMITATIONS.md) state
+> its supported use and boundaries.
 
-## Bundle layout
+## Bundle lifecycle and layout
 
-A successful `run` or default `attach` creates a unique subdirectory beneath `--output` containing:
+A normally completed `run` or default `attach` creates a unique subdirectory
+beneath `--output` and writes:
 
-| File | Authority | Current semantics |
+| File | Kind | Current purpose |
 |---|---|---|
-| `processes.ndjson` | raw evidence | One process identity record for the observed launch/attach root. |
-| `samples.ndjson` | raw evidence | Periodic process, Job-when-applicable, system, and probe sample records. |
-| `events.ndjson` | raw evidence | Lifecycle and terminal-counter events. |
-| `summary.json` | derived | Deterministically regenerated from the persisted raw streams. |
+| `processes.ndjson` | Raw evidence | Process identity records and handle-acquisition outcomes. |
+| `samples.ndjson` | Raw evidence | Timestamped cumulative process counters, process-set sums, optional Job accounting, system samples, and collector samples. |
+| `events.ndjson` | Raw evidence | Lifecycle, retention/degradation, and terminal-counter events. |
+| `summary.json` | Derived | Deterministic summary reconstructed from saved raw evidence. |
+| `host.json` | Context metadata | Windows version/build, architecture, CPU/RAM details, and collector version. |
+| `target.json` | Context metadata | Mode, root identity, executable path where available, exit code, and Job/command-line handling. |
+| `config.json` | Context metadata | Sampling, handle-retention, Job, writer, and flush settings. |
+| `capabilities.json` | Context metadata | Current collection capability status. |
+| `manifest.json` | Context metadata | Run ID, schema/version identity, run state, artifact sizes, and measurement validity. |
 
-The streams are newline-delimited UTF-8 JSON. A reader accepts completed JSON lines and may discard only an incomplete final EOF fragment. Malformed interior records are errors.
+The final JSON metadata is written only after the raw streams are finalized and
+the summary has been generated. If the collector is interrupted, the bundle may
+contain only raw NDJSON. That is intentionally not presented as a completed
+bundle.
 
-## Process record
+## Raw evidence
 
-`processes.ndjson` currently stores `ProcessRecord` with:
+The three NDJSON files are UTF-8 JSON objects separated by newlines. A completed
+line is flushed after it is written. Consumers may discard an incomplete final
+physical-EOF fragment, but any malformed interior line is an evidence error.
+There is no common sequence envelope, hash inventory, signature, or authenticity
+claim in this draft.
 
-- `process_local_id`: collector-local numeric identity;
-- `pid`: Windows PID, explicitly not independently sufficient as identity;
-- `process_start_time`: Windows FILETIME tick identity component;
-- `boot_identity`: collector boot-estimate identity component;
-- `parent_local_id`: optional local parent reference;
-- `discovery_source` and `handle_acquisition_result`.
+### Process identities
 
-The current runtime records the root process only. Child discovery is not implemented and absence of a child record must not be read as absence of the child.
+A process record contains a collector-local `process_local_id`, PID, process
+start time, boot-session identity, optional parent local ID, discovery source,
+and handle-acquisition result. A PID alone is not an identity.
 
-## Sample record
+Launch mode registers the root and attempts snapshot-based descendant discovery.
+Attach mode retains only the requested root observation handle. Child discovery
+and retention can be incomplete because processes can race to exit, access can
+be denied, and the configured handle bound can be reached. An omitted identity
+therefore does not prove that a process did not exist.
 
-`SampleRecord` contains wall and monotonic timestamps, scheduled deadline, delay, inter-sample gap, root-process samples, optional Job accounting, system fields, and probe fields.
+### Samples and events
 
-Per-process raw cumulative fields include user/kernel CPU time, I/O operation and transfer counters, working set, private bytes, and handle count. CPU and I/O values are raw cumulative OS values; rates in `summary.json` are derived and are not collector authority.
+Samples preserve raw cumulative CPU and I/O counters, working set, private bytes,
+thread/handle counts, timing, and process-set sums. Launch samples also include
+Windows Job accounting. `process_set_working_set_sum_bytes` is a sum of observed
+working sets; shared physical pages can be counted more than once, so it is not
+unique physical memory.
 
-Working-set set sums are sums of process working sets and can double count shared physical pages.
+Events include launch Job assignment, default attach observation, child discovery,
+collector degradation, observed exit, and handle release. A terminal-counter
+event records a capture attempt after exit; it is not a promise that every
+process had terminal counters available.
 
-## Event record
+## Derived summary
 
-Implemented event kinds include:
+`summary.json` is generated by a separate reader from persisted raw evidence,
+not from sampler memory. Run:
 
-- `launch_assigned_non_destructive_job`: records `kill_on_job_close_enabled: false` after assignment and membership verification;
-- `attach_observation_started`: records `attached_to_probe_job: false` for default attach;
-- `process_exit_observed`: records exit code and terminal CPU/I/O capture attempt.
+```bash
+bash scripts/cargo-local.sh run --release --bin perf-probe -- summarize --bundle <bundle>
+```
 
-## Ordering, crash recovery, and boundedness
+For identical complete input streams, its fixed serialization is byte-identical.
+It reports sampled peaks, timing/gap metrics, cumulative CPU and I/O totals,
+observed-process and Job counts, handle-retention degradation, terminal fields
+where recorded, and measurement validity. It is derived convenience output, not
+an independent measurement or a certification result. Regeneration fails when
+there are no complete sample records.
 
-One writer thread owns all open streams. Producers send through a bounded channel; the writer serializes a complete JSON object followed by a newline and flushes it. The current implementation has not yet added a common sequence envelope or a finalized manifest/hash inventory. Consumers therefore must not treat this draft as a complete portable evidence format.
+## Validity, run state, and failure
 
-## Availability and fidelity
+`measurement_validity` is independent of target exit status. It can be `VALID`,
+`DEGRADED`, or `INVALID`; bounded-handle retention overflow produces explicit
+`DEGRADED` evidence. `manifest.json` records a separate `run_state` (`COMPLETE`
+or `TARGET_FAILED`) for completed collection. A failed workload can still leave
+usable raw evidence; conversely, a successful workload does not establish that
+measurements were representative or qualified.
 
-Not-yet-collected system and probe fields are currently represented by zero in the implementation. That is a known draft-schema defect: zero is ambiguous with unavailable. Future schema work must use an explicit availability/result union before any contract is frozen.
+## Privacy and consumer responsibilities
+
+A bundle can include timestamps, PIDs, host OS/build/hardware details, and a
+normalized executable path when available. It deliberately does not persist the
+full launch command line. Review generated evidence before sharing it.
+
+Consumers must not infer workload correctness, workload representativeness,
+complete process coverage, unique-memory semantics, an OS lifetime peak,
+calibration, or authority over the target from this data alone.

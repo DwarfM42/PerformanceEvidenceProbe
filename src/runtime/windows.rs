@@ -635,11 +635,12 @@ fn system_sample() -> Result<SystemSample> {
             GetLastError()
         });
     }
-    let drive = [b'D' as u16, b':' as u16, b'\\' as u16, 0];
     let mut free = 0_u64;
     if unsafe {
         GetDiskFreeSpaceExW(
-            drive.as_ptr(),
+            // A null directory asks Windows for the current drive. Do not bind
+            // collection to a developer-specific drive letter.
+            null(),
             &mut free,
             std::ptr::null_mut(),
             std::ptr::null_mut(),

@@ -1,5 +1,9 @@
 # PerformanceEvidenceProbe Repository Closeout
 
+> **Historical record.** This records the August 2026 source-control closeout
+> baseline; it is not a statement of the current repository state or public
+> support. See the root [README](../README.md) for current use.
+
 **Disposition:** `REPOSITORY_CLOSEOUT_COMPLETE`
 **Recorded (UTC):** `2026-08-25T13:41:59Z`
 
@@ -44,5 +48,5 @@ No other repository files are intended for this closeout commit.
 ## Boundary
 
 This closeout preserves the existing claim boundaries. It does not claim a new
-calibration result, schema freeze, canonical-monitor replacement, strict-memory
-certification, or any CloseRAG product result.
+calibration result, schema freeze, monitor replacement, strict-memory
+certification, or any unrelated product result.

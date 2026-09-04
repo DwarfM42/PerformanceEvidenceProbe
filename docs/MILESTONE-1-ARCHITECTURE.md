@@ -1,4 +1,8 @@
-# Milestone 1 architecture (draft)
+# Milestone 1 architecture (implementation note)
+
+> This is a concise technical design note. For current user-facing behavior,
+> use the root [README](../README.md), the [evidence schema](EVIDENCE-SCHEMA-DRAFT.md),
+> and [known limitations](KNOWN-LIMITATIONS.md).
 
 ## Ownership and lifetime
 
@@ -8,7 +12,7 @@ A process registry keys every entry by `(pid, process_start_time, boot_identity)
 
 ## Evidence protocol
 
-Static JSON artifacts are written before sampling.  The three NDJSON streams are owned by exactly one bounded-queue writer thread.  Each record is serialized as one JSON object followed by `\n`, then flushed.  This permits a reader to discard exactly one malformed final EOF fragment after a crash.  A malformed interior line is an evidence error.
+The three NDJSON streams are owned by exactly one bounded-queue writer thread. Each record is serialized as one JSON object followed by `\n`, then flushed. A completed run writes the static JSON metadata after the raw streams have been finalized and the summary has been regenerated. This permits a reader to discard exactly one malformed final EOF fragment after a crash. A malformed interior line is an evidence error.
 
 `samples.ndjson` is raw-first: cumulative times, bytes, and operations are preserved; rates are not collector authority.  `process_set_working_set_sum_bytes` is explicitly a process-set sum, not unique physical memory.
 

@@ -1,32 +1,64 @@
-# Known limitations — Milestone 1 work-in-progress
+# Known limitations
 
-This repository has a runnable Windows launch and default-attach vertical slice, but it **is not eligible for a Milestone 1 acceptance claim**.
+This is a runnable Windows performance-evidence collector, not a performance
+qualification or certification system. These are current limitations of the
+implemented public release, not promises about future scope.
 
-## Authority and provenance blockers
+## Platform and scope
 
-1. The authoritative *Performance Evidence Probe Milestone 1 Implementation Contract* is absent. The parent specification says that contract governs day-to-day M1 implementation, so requirement-by-requirement certification and A1–A20 closure cannot be established.
-2. The directory is not a Git repository. Source revision/clean-tree provenance cannot be recorded from this checkout.
+- **Supported collection:** Windows 10/11 x64 through `perf-probe run` and
+  default `perf-probe attach`.
+- **Unsupported collection:** Linux and macOS; the CLI rejects `run` and
+  `attach` outside Windows. Other Windows architectures are unqualified.
+- **Out of scope:** advanced sensors, profiler-style function attribution,
+  debugging, code injection, automatic diagnosis or tuning, calibration, and
+  performance certification.
+- The evidence schema is an implementation draft (`perf-evidence-v1-draft`),
+  not a frozen or portable interchange contract.
 
-## Runtime coverage gaps
+## Observation boundary
 
-- The process registry observes only the specified root process. It does not enumerate or retain child-process identities, so Job aggregate accounting cannot yet be reconciled against a complete observed process set.
-- Launch uses suspended `CreateProcessW`, a non-destructive Job (zero limit flags), assignment, and membership verification. Completion-port notifications are not implemented; root exit is polled.
-- Default attach opens a read/query/synchronization observation handle and never creates or assigns a Job. It waits for target exit; cancellation/control-C finalization is not implemented.
-- `--attach-job` deliberately fails closed as unsupported.
-- Job accounting is sampled with `QueryInformationJobObject`; `total_terminated_by_limit_os` is not collected and is recorded as zero only because no limits are configured.
-- Process memory, CPU, I/O, and handle count are collected for the root. Thread count, host/system counters, storage counters, and probe self-observation are incomplete or represented as zero.
-- `boot_identity` is a collector-time estimate rather than an authoritative OS boot identity.
+- Launch mode assigns the launched target to a non-destructive Job with zero
+  limit flags. It does not enable kill-on-close or apply Job performance limits.
+  This is observation/accounting containment, not a guarantee that a workload
+  is safe, correct, isolated, or representative.
+- Default attach does not create a Job or assign the specified target to one.
+  `--attach-job` intentionally fails closed as unimplemented.
+- The collector uses process handles and Windows APIs; it does not inspect
+  source, heap objects, allocation stacks, file contents, network payloads,
+  environment variables, or application-level correctness.
 
-## Evidence and boundedness gaps
+## Coverage and measurement limits
 
-- The writer channel is bounded and single-owner, but the current raw schema lacks a sequence envelope, strict closed deserialization, explicit availability values, periodic durability policy, manifest, capability inventory, final-state record, and hashes inventory.
-- The summary reader remains a draft implementation and is not yet a bounded streaming verifier for arbitrarily long evidence runs.
-- A zero metric can currently mean a true zero or an unavailable counter. Do not draw metric conclusions where collection provenance is absent.
-- Writer backpressure error/degradation events, output path privacy normalization, and full crash-finalization semantics remain to be implemented.
+- Sampling is nominally every 500 ms. Peaks that occur between samples can be
+  missed; sampled peaks are not OS lifetime peaks.
+- Descendant discovery is snapshot-based and retention is bounded. Process
+  races, access failures, PID reuse protection needs, and the configured handle
+  limit can leave discovery or terminal measurements incomplete. The collector
+  records degradation rather than fabricating values.
+- Launch-mode Job accounting is OS aggregate accounting. It can exceed the set
+  of observed identities; the derived difference is not filled with invented
+  process records. Default attach has no Probe Job accounting.
+- Process-set working-set sums are not unique physical-memory measurements and
+  may double count shared pages.
+- A terminal event is an observation attempt after exit. Do not assume every
+  counter or every observed process has a final terminal value.
+- A normal completed run writes a summary and metadata. Forced interruption can
+  leave only parseable raw NDJSON; it does not produce a completed summary or
+  manifest. There is no graceful Control-C finalization protocol in this release.
 
-## Validation gaps
+## Evidence and trust limits
 
-- The project has smoke tests for real Windows `run` and default `attach`, but no full A1–A20 synthetic workload suite, calibration suite, OS-peak comparison, independent semantic pinning, or offline `verify` command.
-- The sample bundle is a short `cmd.exe /c exit 0` smoke workload, not a performance characterization or calibration result.
+- Completed NDJSON records are flushed and an incomplete final EOF fragment may
+  be discarded, but there is no hash inventory, signature, sequence envelope,
+  authenticity proof, or offline verification command.
+- `summary.json` is deterministic for identical complete raw inputs, but it is
+  derived output, not an independent evidence authority.
+- The project has Windows runtime and synthetic workload tests, but no
+  calibration suite, OS-peak comparison, independent semantic pinning, or
+  qualification campaign. Passing tests do not certify a workload or result.
+- Generated bundles can contain host and target metadata. Review them before
+  disclosure; raw evidence is not automatically sanitized for redistribution.
 
-These limitations are intentional fail-open-in-documentation disclosures, not claims that missing observations equal zero or that an unavailable capability was validated.
+See the [evidence schema](EVIDENCE-SCHEMA-DRAFT.md) for exact draft artifact
+semantics and the root [README](../README.md) for the supported workflow.
