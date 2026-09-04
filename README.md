@@ -101,6 +101,28 @@ The wrapper writes `cargo-home/`, `target/`, and `tmp/` beneath the repository; 
 
 Start with the [documentation index](docs/README.md). It identifies the current user-facing schema and limitations documents, the retained technical design material, and historical closeout record.
 
+## Related tools / how this differs
+
+PerformanceEvidenceProbe does not invent process monitoring, sampling, performance counters, or benchmarking. [prmon](https://github.com/HSF/prmon) is one of the closest existing tools: it monitors resource consumption for a process and its children. [1] [psrecord](https://github.com/astrofrog/psrecord) records CPU and memory activity for a process, and [Metrace](https://github.com/sloev/metrace) collects CPU/memory metrics for process trees and produces plot-oriented output. [12] [5]
+
+[Windows Performance Recorder](https://learn.microsoft.com/en-us/windows-hardware/test/wpt/windows-performance-recorder) is ETW-based recording infrastructure. [11] [hyperfine](https://github.com/sharkdp/hyperfine), [ReBench](https://github.com/smarr/ReBench), and the [Phoronix Test Suite](https://github.com/phoronix-test-suite/phoronix-test-suite) instead center repeated command timing, reproducible benchmark experiments, or test/benchmark execution and reporting. [7] [13] [10]
+
+This collector's narrower responsibility is an inspectable, bounded evidence bundle: explicitly bound workload observation, lifecycle and degradation events, raw samples, host/target/config/capability metadata, and a deterministically derived summary. It does not replace a profiler, tracing system, or benchmark framework. These projects are comparison references only; no code or documentation from them is included here.
+
+## Software and evidence licensing boundary
+
+The project licenses govern PerformanceEvidenceProbe itself. Running the Probe against another program does not, merely by that act, apply these licenses to that program. Evidence artifacts can contain material supplied by or about the target program; users remain responsible for rights, privacy, and redistribution decisions for captured content and generated bundles.
+
 ## License
 
-[MIT](LICENSE).
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT License](LICENSE-MIT), at your option. See the [contribution policy](CONTRIBUTING.md), [third-party notices](THIRD-PARTY-NOTICES.md), and [license/provenance audit](docs/LICENSE-AUDIT-2026-09-04.md).
+
+## Sources
+
+[1] https://raw.githubusercontent.com/HSF/prmon/main/README.md — HSF prmon README
+[5] https://raw.githubusercontent.com/sloev/metrace/master/README.md — Metrace README
+[7] https://raw.githubusercontent.com/sharkdp/hyperfine/master/README.md — hyperfine README
+[10] https://raw.githubusercontent.com/phoronix-test-suite/phoronix-test-suite/master/README.md — Phoronix Test Suite README
+[11] https://learn.microsoft.com/en-us/windows-hardware/test/wpt/windows-performance-recorder — Windows Performance Recorder documentation
+[12] https://raw.githubusercontent.com/astrofrog/psrecord/main/README.rst — psrecord README
+[13] https://raw.githubusercontent.com/smarr/ReBench/master/README.md — ReBench README

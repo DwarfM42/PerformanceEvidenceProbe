@@ -11,6 +11,7 @@ claim limits.
 | [Milestone 1 architecture](MILESTONE-1-ARCHITECTURE.md) | Useful implementation note | Collector ownership, sampling, writer, and summary design. |
 | [Milestone 1 implementation contract v0.1](Performance%20Evidence%20Probe%20Milestone%201%20Implementation%20Contract%20v0.1.md) | Historical but valuable technical contract | Detailed Windows Milestone 1 requirements and rationale. Current source, tests, and user-facing documents take precedence where it differs. |
 | [Repository closeout](REPOSITORY-CLOSEOUT.md) | Historical record | The August 2026 source-control baseline and its then-current verification. |
+| [License and provenance audit](LICENSE-AUDIT-2026-09-04.md) | Current release record | License decision, source provenance, dependency notices, and future-reuse boundary. |
 
 The former checked-in smoke bundle was removed because its emitted schema and
 boot-identity format were stale. Generate a fresh bundle with the root README
