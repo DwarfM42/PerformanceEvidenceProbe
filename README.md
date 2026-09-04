@@ -8,6 +8,8 @@ Use it when you need a durable record of what a workload did while it ran: sampl
 
 **Current qualification:** PerformanceEvidenceProbe is developed and verified for Windows 10/11 x64. The documented `run` and default `attach` collection workflows are qualified only there. Their implementation uses Windows APIs and deliberately returns a `requires Windows` error on non-Windows builds, but non-Windows builds and workflows have not been qualified and should not be assumed to work. The documented Quick Start is verified with Rust and Git Bash on Windows.
 
+GitHub Actions provides additional continuous verification on GitHub-hosted Windows runners. A green CI run verifies the repository's canonical checks there; it is not itself the Windows 10/11 x64 runtime qualification claim.
+
 Linux and macOS are intended future targets, but neither is currently qualified. Contributions are welcome, especially for platform-specific collectors and the tests needed to qualify them.
 
 That portability is intentional in the design. Platform-specific observation is kept separate from the Probe's evidence and interpretation boundaries: a collector observes the host and produces the raw process, sample, event, and context records; deterministic summarization operates on the persisted evidence; visualization and interpretation remain downstream. A Linux or macOS collector should therefore be able to add OS-specific observation without redefining what counts as Probe evidence. This is a design goal, not yet a cross-platform compatibility guarantee.

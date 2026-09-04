@@ -22,8 +22,8 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
-      - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt
+      - name: Confirm repository Rust toolchain selection
+        run: rustup show active-toolchain
       - name: Check formatting
         run: bash scripts/cargo-local.sh fmt --check
       - name: Run canonical test suite
