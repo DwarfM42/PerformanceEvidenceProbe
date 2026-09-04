@@ -1,5 +1,7 @@
 # PerformanceEvidenceProbe
 
+[![Windows CI](https://github.com/DwarfM42/PerformanceEvidenceProbe/actions/workflows/windows-ci.yml/badge.svg?branch=main)](https://github.com/DwarfM42/PerformanceEvidenceProbe/actions/workflows/windows-ci.yml)
+
 **PerformanceEvidenceProbe is a Windows runtime performance evidence collector that observes a workload and preserves inspectable raw measurements for later analysis.**
 
 Use it when you need a durable record of what a workload did while it ran: sampled process memory, CPU and I/O counters; process identities; Windows Job accounting for launched workloads; lifecycle events; and a derived summary. It is designed to preserve observations, not to decide what those observations mean.
@@ -12,7 +14,7 @@ That portability is intentional in the design. Platform-specific observation is 
 
 ## Quick start
 
-Clone the repository, install a current stable Rust toolchain, and run these commands from **Git Bash** on Windows. Dependencies are vendored; `scripts/cargo-local.sh` keeps Cargo, build, and temporary state under the checkout.
+Clone the repository, use the Rust toolchain selected by `rust-toolchain.toml`, and run these commands from **Git Bash** on Windows. Git Bash is the verified shell for this Windows workflow, not a product runtime requirement. Dependencies are vendored.
 
 ```bash
 bash scripts/cargo-local.sh build --release --locked
@@ -109,7 +111,7 @@ bash scripts/cargo-local.sh test --all-targets --locked -- --nocapture
 bash scripts/cargo-local.sh build --release --locked
 ```
 
-The canonical test command above enumerated and passed **33 tests** on the final v0.1.0 Windows preparation tree: 2 + 3 + 7 + 14 + 2 + 1 + 2 + 2 across eight integration-test binaries, plus three zero-test library/binary targets. See the [public-claim audit](docs/PUBLIC-CLAIM-AUDIT-2026-09-04.md) for the reconciled historical count. The wrapper writes `cargo-home/`, `target/`, and `tmp/` beneath the repository; all are ignored by Git. The release executable is `target/release/perf-probe.exe`. Do not invoke Cargo directly from a shell whose Cargo or temporary-directory environment variables redirect state outside the checkout.
+Windows CI runs the complete canonical test suite on every pull request and `main` push. The v0.1.0 preparation baseline enumerated 33 tests; see the [public-claim audit](docs/PUBLIC-CLAIM-AUDIT-2026-09-04.md) for that reconciled historical count. `scripts/cargo-local.sh` is the canonical repository-verification wrapper: it keeps `CARGO_HOME`, build artifacts, and temporary files in ignored directories beneath the checkout, so verification does not silently depend on or modify unrelated machine-global Cargo state. Cargo itself remains ordinary Rust tooling; the wrapper is a repository verification convention. The release executable is `target/release/perf-probe.exe`.
 
 ## Documentation
 
