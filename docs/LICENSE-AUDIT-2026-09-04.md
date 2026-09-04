@@ -24,7 +24,7 @@ first-party source-file SPDX headers, no root `NOTICE`, `COPYING`, or
 only in the MIT file as `Copyright (c) 2026 PerformanceEvidenceProbe
 contributors`.
 
-This change replaces that MIT-only presentation with `LICENSE-MIT`,
+This change replaces that prior single-license presentation with `LICENSE-MIT`,
 `LICENSE-APACHE`, Cargo metadata `MIT OR Apache-2.0`, this audit, third-party
 notices, and an inbound-equals-outbound contribution policy.
 

@@ -6,10 +6,12 @@ implemented public release, not promises about future scope.
 
 ## Platform and scope
 
-- **Supported collection:** Windows 10/11 x64 through `perf-probe run` and
+- **Qualified collection:** Windows 10/11 x64 through `perf-probe run` and
   default `perf-probe attach`.
-- **Unsupported collection:** Linux and macOS; the CLI rejects `run` and
-  `attach` outside Windows. Other Windows architectures are unqualified.
+- **Unqualified collection:** `run` and `attach` use Windows APIs and their
+  non-Windows source paths return a `requires Windows` error. Linux, macOS, and
+  other Windows architectures have not been qualified; no collection workflow
+  on them should be assumed to work.
 - **Out of scope:** advanced sensors, profiler-style function attribution,
   debugging, code injection, automatic diagnosis or tuning, calibration, and
   performance certification.

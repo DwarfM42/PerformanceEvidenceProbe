@@ -4,7 +4,7 @@
 
 Use it when you need a durable record of what a workload did while it ran: sampled process memory, CPU and I/O counters; process identities; Windows Job accounting for launched workloads; lifecycle events; and a derived summary. It is designed to preserve observations, not to decide what those observations mean.
 
-**Current support:** Windows 10/11 x64. `run` and `attach` require Windows; on other platforms they fail explicitly. Build and use the current release with Rust and Git Bash.
+**Current qualification:** PerformanceEvidenceProbe is developed and verified for Windows 10/11 x64. The documented `run` and default `attach` collection workflows are qualified only there. Their implementation uses Windows APIs and deliberately returns a `requires Windows` error on non-Windows builds, but non-Windows builds and workflows have not been qualified and should not be assumed to work. The documented Quick Start is verified with Rust and Git Bash on Windows.
 
 ## Quick start
 
@@ -53,6 +53,16 @@ The raw evidence streams are the primary record:
 
 Raw evidence records what the collector observed. It does **not** prove that the workload is correct, representative, complete, or suitable for a particular performance claim. A sampled peak is not an operating-system lifetime peak; a process-set working-set sum is not unique physical memory; and later analysis or qualification remains the consumer's responsibility.
 
+## Why no built-in dashboard?
+
+PerformanceEvidenceProbe intentionally owns observation and deterministic evidence production, not visualization or interpretation:
+
+```text
+observation → canonical machine-readable evidence → deterministic Probe-derived summary → optional downstream view
+```
+
+The raw streams and context metadata are canonical Probe evidence. `summary.json` is Probe-derived output reconstructed from those saved records. Scripts, `jq`, spreadsheets, data-analysis and visualization systems, or AI assistants can consume the bundle to make tables, charts, explanations, and diagnoses. Those outputs are downstream views: a chart, an AI interpretation, or a performance conclusion is not canonical Probe evidence.
+
 ## Runtime safety boundary
 
 ### Launch
@@ -95,7 +105,7 @@ bash scripts/cargo-local.sh test --all-targets --locked -- --nocapture
 bash scripts/cargo-local.sh build --release --locked
 ```
 
-The wrapper writes `cargo-home/`, `target/`, and `tmp/` beneath the repository; all are ignored by Git. The release executable is `target/release/perf-probe.exe`. Do not invoke Cargo directly from a shell whose Cargo or temporary-directory environment variables redirect state outside the checkout.
+The canonical test command above enumerated and passed **33 tests** on the final v0.1.0 Windows preparation tree: 2 + 3 + 7 + 14 + 2 + 1 + 2 + 2 across eight integration-test binaries, plus three zero-test library/binary targets. See the [public-claim audit](docs/PUBLIC-CLAIM-AUDIT-2026-09-04.md) for the reconciled historical count. The wrapper writes `cargo-home/`, `target/`, and `tmp/` beneath the repository; all are ignored by Git. The release executable is `target/release/perf-probe.exe`. Do not invoke Cargo directly from a shell whose Cargo or temporary-directory environment variables redirect state outside the checkout.
 
 ## Documentation
 
