@@ -1,4 +1,4 @@
-# Evidence schema — draft (`perf-evidence-v1-draft`)
+# Evidence schema — draft (`perf-evidence-v2-draft`)
 
 > **Status:** implemented draft, not a frozen interchange contract. This
 > document describes the current public output surface; the root
@@ -26,6 +26,65 @@ The final JSON metadata is written only after the raw streams are finalized and
 the summary has been generated. If the collector is interrupted, the bundle may
 contain only raw NDJSON. That is intentionally not presented as a completed
 bundle.
+
+## V2 availability contract
+
+V2 identifies each newly written sample with `schema_draft_version` and uses
+`perf-evidence-v2-draft` in its summary and completed manifest. A raw-only V2
+bundle is still reconstructable; it is not thereby a finalized producer bundle.
+
+Optional canonical raw numeric observations are represented either by a JSON
+number (including truthful `0`) or by an omitted key plus exactly one applicable
+`metric_unavailable` event. `null`, strings, booleans, negative values,
+fractional values, and out-of-range values for known unsigned numeric fields
+are invalid evidence, not absence. Derived witnesses and summary fields are not
+availability-event targets.
+
+The closed raw metric vocabulary is domain-qualified: `process.private_bytes`,
+`process.other_bytes`, `process.read_operations`, `process.write_operations`,
+`process.other_operations`, `process.thread_count`, `process.handle_count`,
+`probe.private_bytes`, `probe.thread_count`, `probe.handle_count`, and
+`system.{system_user_cpu_time_ns,system_kernel_cpu_time_ns,system_idle_cpu_time_ns,available_physical_memory_bytes,commit_current_bytes,commit_limit_bytes,disk_free_bytes}`.
+
+`metric_unavailable` has closed `reason` values: `unsupported`,
+`not_applicable`, `semantic_mismatch`, `authority_unavailable`, and
+`sampling_degraded`. Its `subject_kind` is one of `RUN`, `PROCESS`, `SAMPLE`,
+or `PROCESS_SAMPLE`; PROCESS subjects require `process_local_id`, sample
+subjects require the zero-based ordinal of successfully recovered canonical
+`samples.ndjson` records, and PROCESS_SAMPLE requires both. Semantic reasons
+use RUN; operational reasons use the relevant process/sample scope. PROCESS
+authority requires a unique persisted process record with non-sentinel PID,
+start time, and boot identity; PID or a sample-local ID alone is insufficient.
+
+The normative required profile is scoped by V2 represented raw domains and
+runtime mode, not all conceivable enum members. Job accounting is required only
+when its domain is represented. For every in-scope optional leaf, a numeric
+value or one exact valid explanation is required. Stale, duplicate, conflicting,
+wrong-domain, wrong-subject, and no-op explanations are invalid.
+
+`process_set_working_set_sum_bytes` and `process_set_private_bytes_sum` are
+checked derived integrity witnesses. A complete contributor set requires an
+exact checked-arithmetic witness (including zero for an empty set). If a private
+contributor is validly unavailable, its private witness must be absent. No
+saturating arithmetic or independent witness availability event is allowed.
+
+`measurement_validity` (`VALID`, `DEGRADED`, `INVALID`) is independent from
+`measurement_completeness` (`COMPLETE`, `DECLARED_PARTIAL`). Semantic absence
+is VALID + DECLARED_PARTIAL; authority/sampling absence is DEGRADED +
+DECLARED_PARTIAL. Raw-only complete evidence can be VALID + COMPLETE without
+claiming a finalized bundle. A completed V2 manifest must agree with the
+reconstructed validity and completeness; it cannot rehabilitate raw evidence.
+
+Windows numeric values retain their qualified Win32 meanings. A non-equivalent
+platform proxy must be declared `semantic_mismatch`, not serialized as the
+Windows-derived canonical metric. V2 does not claim macOS or Linux collection
+support.
+
+Compatibility is directional: the new reader accepts historical fully numeric
+v0.1 evidence (including absent process stream where no new process-scoped
+claim exists); new Windows numeric values retain their existing field names and
+numeric JSON shape. Old readers are not promised to understand omitted V2
+fields, `metric_unavailable`, or `measurement_completeness`.
 
 ## Raw evidence
 

@@ -219,7 +219,7 @@ pub fn run(
             GetLastError()
         });
     }
-    emit_terminal_event(&writer, process.raw(), exit_code)?;
+    emit_terminal_event(&writer, process.raw(), 1, exit_code)?;
     process.close()?;
     writer.event(EvidenceEvent::new("handle_released").with_u64("process_local_id", 1))?;
     writer.finish()?;
@@ -284,7 +284,7 @@ pub fn attach(output_root: &Path, pid: u32, attach_job: bool) -> Result<()> {
             GetLastError()
         });
     }
-    emit_terminal_event(&writer, process.raw(), exit_code)?;
+    emit_terminal_event(&writer, process.raw(), 1, exit_code)?;
     process.close()?;
     writer.event(EvidenceEvent::new("handle_released").with_u64("process_local_id", 1))?;
     writer.finish()?;
@@ -508,7 +508,7 @@ fn finalize_exited_children(
         .collect::<Vec<_>>();
     for (pid, code) in exited {
         if let Some((process_local_id, handle)) = retained_children.remove(&pid) {
-            emit_terminal_event(writer, handle.raw(), code)?;
+            emit_terminal_event(writer, handle.raw(), process_local_id, code)?;
             handle.close()?;
             writer.event(
                 EvidenceEvent::new("handle_released")
@@ -545,8 +545,18 @@ fn one_sample(
         .iter()
         .map(|sample| sample.working_set_bytes)
         .sum();
-    let process_set_private_bytes_sum = processes.iter().map(|sample| sample.private_bytes).sum();
+    let process_set_private_bytes_sum = Some(
+        processes
+            .iter()
+            .map(|sample| {
+                sample
+                    .private_bytes
+                    .expect("Windows private bytes are present")
+            })
+            .sum(),
+    );
     Ok(SampleRecord {
+        schema_draft_version: "perf-evidence-v2-draft",
         record_type: "sample",
         wall_time_utc: utc_now()?,
         monotonic_ns,
@@ -598,17 +608,17 @@ fn process_sample(process: HANDLE, process_local_id: u64) -> Result<ProcessSampl
     Ok(ProcessSample {
         process_local_id,
         working_set_bytes: memory.WorkingSetSize as u64,
-        private_bytes: memory.PrivateUsage as u64,
+        private_bytes: Some(memory.PrivateUsage as u64),
         user_cpu_time_ns: filetime_to_ns(user),
         kernel_cpu_time_ns: filetime_to_ns(kernel),
         read_bytes: io.ReadTransferCount,
         write_bytes: io.WriteTransferCount,
         other_bytes: Some(io.OtherTransferCount),
-        read_operations: io.ReadOperationCount,
-        write_operations: io.WriteOperationCount,
+        read_operations: Some(io.ReadOperationCount),
+        write_operations: Some(io.WriteOperationCount),
         other_operations: Some(io.OtherOperationCount),
         thread_count: process_thread_count(unsafe { GetProcessId(process) })?,
-        handle_count: handles,
+        handle_count: Some(handles),
     })
 }
 
@@ -653,13 +663,13 @@ fn system_sample() -> Result<SystemSample> {
     }
     let page_size = performance.PageSize as u64;
     Ok(SystemSample {
-        system_user_cpu_time_ns: filetime_to_ns(user),
-        system_kernel_cpu_time_ns: filetime_to_ns(kernel),
-        system_idle_cpu_time_ns: filetime_to_ns(idle),
-        available_physical_memory_bytes: memory.ullAvailPhys,
-        commit_current_bytes: (performance.CommitTotal as u64).saturating_mul(page_size),
-        commit_limit_bytes: (performance.CommitLimit as u64).saturating_mul(page_size),
-        disk_free_bytes: free,
+        system_user_cpu_time_ns: Some(filetime_to_ns(user)),
+        system_kernel_cpu_time_ns: Some(filetime_to_ns(kernel)),
+        system_idle_cpu_time_ns: Some(filetime_to_ns(idle)),
+        available_physical_memory_bytes: Some(memory.ullAvailPhys),
+        commit_current_bytes: Some((performance.CommitTotal as u64).saturating_mul(page_size)),
+        commit_limit_bytes: Some((performance.CommitLimit as u64).saturating_mul(page_size)),
+        disk_free_bytes: Some(free),
     })
 }
 
@@ -734,10 +744,16 @@ fn job_accounting(job: HANDLE) -> Result<JobAccounting> {
         total_terminated_by_limit_os: accounting.BasicInfo.TotalTerminatedProcesses as u64,
     })
 }
-fn emit_terminal_event(writer: &EvidenceWriter, process: HANDLE, exit_code: u32) -> Result<()> {
+fn emit_terminal_event(
+    writer: &EvidenceWriter,
+    process: HANDLE,
+    process_local_id: u64,
+    exit_code: u32,
+) -> Result<()> {
     let sample = process_sample(process, 1)?;
     writer.event(
         EvidenceEvent::new("process_exit_observed")
+            .with_u64("process_local_id", process_local_id)
             .with_u64("pid", unsafe { GetProcessId(process) } as u64)
             .with_u64("exit_code", exit_code as u64)
             .with_u64("terminal_user_cpu_time_ns", sample.user_cpu_time_ns)
@@ -914,12 +930,17 @@ fn write_bundle_metadata(
         .unwrap_or_else(|| "INVALID".into());
     let manifest = json!({
         "run_id": bundle.file_name().and_then(|name| name.to_str()).unwrap_or("unknown"),
-        "schema_draft_version": "perf-evidence-v1-draft",
+        "schema_draft_version": "perf-evidence-v2-draft",
         "probe_version": env!("CARGO_PKG_VERSION"),
         "probe_build_identity": concat!(env!("CARGO_PKG_NAME"), "-", env!("CARGO_PKG_VERSION")),
         "run_state": if exit_code == Some(0) { "COMPLETE" } else { "TARGET_FAILED" },
         "artifact_list": artifacts,
         "measurement_validity": measurement_validity,
+        "measurement_completeness": fs::read(bundle.join("summary.json"))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+            .and_then(|summary| summary.get("measurement_completeness").and_then(|value| value.as_str()).map(str::to_owned))
+            .unwrap_or_else(|| "INVALID".into()),
     });
     fs::write(
         bundle.join("manifest.json"),
