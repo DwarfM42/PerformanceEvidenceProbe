@@ -30,5 +30,17 @@ jobs:
         run: bash scripts/cargo-local.sh fmt --check
       - name: Run canonical test suite
         run: bash scripts/cargo-local.sh test --all-targets --locked -- --nocapture
+      - name: Check all targets
+        run: bash scripts/cargo-local.sh check --all-targets --locked
+      - name: Run Windows runtime tests
+        run: >-
+          bash scripts/cargo-local.sh test
+          --test milestone1_contract_windows
+          --test milestone1_workloads_windows
+          --test windows_runtime_smoke
+          --test optional_unavailable_metrics
+          --locked -- --nocapture
       - name: Build release binaries
-        run: bash scripts/cargo-local.sh build --release --locked
+        run: bash scripts/cargo-local.sh build --release --locked --bin perf-probe
+      - name: Check repository diff
+        run: git diff --check

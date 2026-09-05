@@ -1,9 +1,11 @@
 # Public-claim audit — 2026-09-04
 
-This release-preparation record reviews the public claims in the root README,
-current schema and limitations documents, CLI help, Cargo metadata, licensing
-documents, and related-tool references. It is an engineering evidence record,
-not a certification or legal opinion.
+This historical v0.1.0 release-preparation record reviews the public claims in
+the then-current README, schema and limitations documents, CLI help, Cargo
+metadata, licensing documents, and related-tool references. It is an
+engineering evidence record, not a certification or legal opinion. It predates
+the qualified Linux and macOS collectors; current claims are in the root README,
+known limitations, and v0.2.0 release notes.
 
 ## Claim classification
 

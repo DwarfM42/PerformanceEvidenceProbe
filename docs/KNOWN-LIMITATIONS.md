@@ -1,17 +1,25 @@
 # Known limitations
 
-This is a runnable Windows performance-evidence collector, not a performance
-qualification or certification system. These are current limitations of the
-implemented public release, not promises about future scope.
+This is a runnable cross-platform performance-evidence collector, not a
+performance qualification or certification system. These are current
+limitations of the implemented public release, not promises about future scope.
 
 ## Platform and scope
 
-- **Qualified collection:** Windows 10/11 x64 through `perf-probe run` and
-  default `perf-probe attach`.
-- **Unqualified collection:** `run` and `attach` use Windows APIs and their
-  non-Windows source paths return a `requires Windows` error. Linux, macOS, and
-  other Windows architectures have not been qualified; no collection workflow
-  on them should be assumed to work.
+- **Qualified collection:** Windows x86_64 through `perf-probe run` and default
+  `perf-probe attach`; Linux x86_64 and macOS arm64 through bounded direct-root
+  `run` and observation-only single-root `attach`.
+- **Unqualified collection:** Windows architectures other than x86_64, Linux
+  architectures other than x86_64, macOS architectures other than arm64, and
+  all other operating systems. No collection workflow on those targets should
+  be assumed to work.
+- **Linux and macOS scope:** neither collector claims Job accounting,
+  containment, descendant/process-tree closure, complete process-set totals,
+  FD-to-handle equivalence, RSS/phys_footprint-to-private-bytes equivalence,
+  Windows-shaped I/O, or Linux/macOS commit values as Windows commit values.
+  Each writes typed semantic omissions instead of fabricated values or numeric
+  zero. Signal termination is platform terminal metadata, not a synthetic exit
+  code.
 - **Out of scope:** advanced sensors, profiler-style function attribution,
   debugging, code injection, automatic diagnosis or tuning, calibration, and
   performance certification.
@@ -20,24 +28,27 @@ implemented public release, not promises about future scope.
 
 ## Observation boundary
 
-- Launch mode assigns the launched target to a non-destructive Job with zero
-  limit flags. It does not enable kill-on-close or apply Job performance limits.
-  This is observation/accounting containment, not a guarantee that a workload
-  is safe, correct, isolated, or representative.
-- Default attach does not create a Job or assign the specified target to one.
-  `--attach-job` intentionally fails closed as unimplemented.
-- The collector uses process handles and Windows APIs; it does not inspect
-  source, heap objects, allocation stacks, file contents, network payloads,
-  environment variables, or application-level correctness.
+- Windows launch mode assigns the launched target to a non-destructive Job with
+  zero limit flags. It does not enable kill-on-close or apply Job performance
+  limits. This is observation/accounting containment, not a guarantee that a
+  workload is safe, correct, isolated, or representative.
+- Linux and macOS launch modes observe only the directly owned root; they do not
+  establish a Job analogue or descendant ownership. Default attach on every
+  platform is observational and does not create a Job or assign the specified
+  target to one. `--attach-job` intentionally fails closed as unimplemented.
+- The collector uses OS process-observation APIs; it does not inspect source,
+  heap objects, allocation stacks, file contents, network payloads, environment
+  variables, or application-level correctness.
 
 ## Coverage and measurement limits
 
 - Sampling is nominally every 500 ms. Peaks that occur between samples can be
   missed; sampled peaks are not OS lifetime peaks.
-- Descendant discovery is snapshot-based and retention is bounded. Process
-  races, access failures, PID reuse protection needs, and the configured handle
-  limit can leave discovery or terminal measurements incomplete. The collector
-  records degradation rather than fabricating values.
+- Windows descendant discovery is snapshot-based and retention is bounded;
+  Linux and macOS make no descendant discovery or closure claim. Process races,
+  access failures, PID reuse protection needs, and the configured handle limit
+  can leave discovery or terminal measurements incomplete. The collector records
+  degradation rather than fabricating values.
 - Launch-mode Job accounting is OS aggregate accounting. It can exceed the set
   of observed identities; the derived difference is not filled with invented
   process records. Default attach has no Probe Job accounting.
@@ -56,9 +67,10 @@ implemented public release, not promises about future scope.
   authenticity proof, or offline verification command.
 - `summary.json` is deterministic for identical complete raw inputs, but it is
   derived output, not an independent evidence authority.
-- The project has Windows runtime and synthetic workload tests, but no
-  calibration suite, OS-peak comparison, independent semantic pinning, or
-  qualification campaign. Passing tests do not certify a workload or result.
+- The project has Windows, Linux, and macOS runtime and synthetic workload
+  tests, but no calibration suite, OS-peak comparison, independent semantic
+  pinning, or performance-certification campaign. Passing tests do not certify
+  a workload or result.
 - Generated bundles can contain host and target metadata. Review them before
   disclosure; raw evidence is not automatically sanitized for redistribution.
 

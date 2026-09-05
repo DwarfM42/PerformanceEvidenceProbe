@@ -1,5 +1,9 @@
 # License and provenance audit — 2026-09-04
 
+> Historical v0.1.0 audit record. Its commit/tree binding below does not
+> qualify v0.2.0; the v0.2.0 release audit must rebind dependency, vendor, and
+> provenance conclusions to its exact release candidate.
+
 ## Decision
 
 **Chosen outbound license: `MIT OR Apache-2.0`.**

@@ -1,4 +1,4 @@
-name: macOS CI
+name: Linux CI
 
 on:
   pull_request:
@@ -10,9 +10,9 @@ permissions:
   contents: read
 
 jobs:
-  macos-ci:
-    name: macos-ci
-    runs-on: macos-latest
+  linux-ci:
+    name: linux-ci
+    runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash
@@ -28,8 +28,15 @@ jobs:
         run: bash scripts/cargo-local.sh test --all-targets --locked -- --nocapture
       - name: Check all targets
         run: bash scripts/cargo-local.sh check --all-targets --locked
-      - name: Run macOS runtime tests
-        run: bash scripts/cargo-local.sh test --test macos_identity_contract --test macos_runtime_evidence --locked -- --nocapture
+      - name: Run Linux runtime tests
+        run: >-
+          bash scripts/cargo-local.sh test
+          --test linux_proc_identity
+          --test linux_contract_qualification
+          --test linux_attach_evidence
+          --test linux_run_evidence
+          --test linux_run_process_set
+          --locked -- --nocapture
       - name: Build release binary
         run: bash scripts/cargo-local.sh build --release --locked --bin perf-probe
       - name: Check repository diff
