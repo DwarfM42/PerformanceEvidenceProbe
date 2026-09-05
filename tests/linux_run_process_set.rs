@@ -56,12 +56,18 @@ fn run_fixture(mode: &str, child_must_remain_live: bool, escaped_session: bool) 
     }
 
     let bundle = only_bundle(output.path());
-    let process: Value =
-        serde_json::from_str(&fs::read_to_string(bundle.join("processes.ndjson")).unwrap())
-            .expect("root process JSON");
-    let sample: Value =
-        serde_json::from_str(&fs::read_to_string(bundle.join("samples.ndjson")).unwrap())
-            .expect("root sample JSON");
+    let process: Value = fs::read_to_string(bundle.join("processes.ndjson"))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("root process JSON"))
+        .next()
+        .expect("root process evidence");
+    let sample: Value = fs::read_to_string(bundle.join("samples.ndjson"))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("root sample JSON"))
+        .next()
+        .expect("root sample evidence");
     let summary: Value =
         serde_json::from_slice(&fs::read(bundle.join("summary.json")).unwrap()).expect("summary");
     let manifest: Value =
