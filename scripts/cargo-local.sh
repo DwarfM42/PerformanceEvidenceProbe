@@ -3,11 +3,17 @@
 set -euo pipefail
 
 repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
-repo_dir_windows="$(cygpath -aw "$repo_dir")"
+if [[ -n "${MSYSTEM:-}" || "${OSTYPE:-}" == cygwin* ]]; then
+    repo_dir_cargo="$(cygpath -aw "$repo_dir")"
+    path_separator='\\'
+else
+    repo_dir_cargo="$repo_dir"
+    path_separator='/'
+fi
 
-export CARGO_HOME="$repo_dir_windows\\cargo-home"
-export CARGO_TARGET_DIR="$repo_dir_windows\\target"
-export TEMP="$repo_dir_windows\\tmp"
+export CARGO_HOME="${repo_dir_cargo}${path_separator}cargo-home"
+export CARGO_TARGET_DIR="${repo_dir_cargo}${path_separator}target"
+export TEMP="${repo_dir_cargo}${path_separator}tmp"
 export TMP="$TEMP"
 export TMPDIR="$TEMP"
 

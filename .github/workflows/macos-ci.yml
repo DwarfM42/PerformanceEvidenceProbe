@@ -20,6 +20,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Confirm repository Rust toolchain selection
         run: rustup show active-toolchain
+      - name: Test Cargo wrapper portability
+        run: bash tests/cargo_local_wrapper.sh
       - name: Check formatting
         run: bash scripts/cargo-local.sh fmt --check
       - name: Run canonical test suite
