@@ -123,7 +123,11 @@ fn main() {
         #[cfg(target_os = "linux")]
         "linux-hold-long" => thread::sleep(Duration::from_secs(10)),
         #[cfg(target_os = "linux")]
-        "linux-exit" => {}
+        // Leave enough time for the probe to persist one live identity/sample,
+        // then exit before its next 500ms cadence. An immediate exit races
+        // identity acquisition on loaded hosted runners and cannot exercise the
+        // intended pre-exit-sample contract.
+        "linux-exit" => thread::sleep(Duration::from_millis(250)),
         #[cfg(target_os = "linux")]
         "linux-session-child" => linux_session_child(&args.next().expect("child report path")),
         _ => panic!("unknown synthetic workload mode: {mode}"),
@@ -204,12 +208,8 @@ fn linux_child_new_session(report: &str) {
         });
     }
     let mut child = command.spawn().expect("launch new-session Linux child");
-    assert!(
-        child
-            .wait()
-            .expect("wait new-session Linux child")
-            .success()
-    );
+    let status = child.wait().expect("wait new-session Linux child");
+    assert!(status.success());
 }
 
 #[cfg(target_os = "linux")]
