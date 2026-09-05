@@ -47,8 +47,8 @@ use windows_sys::Win32::{
 use crate::{
     contract::JobSafetyPolicy,
     evidence::{
-        EvidenceEvent, EvidenceWriter, JobAccounting, ProbeSample, ProcessRecord, ProcessSample,
-        SampleRecord, SystemSample,
+        EvidenceEvent, EvidenceWriter, JobAccounting, Metric, ProbeSample, ProcessRecord,
+        ProcessSample, SampleRecord, SubjectKind, SystemSample, UnavailableReason,
     },
     summary::regenerate_summary,
 };
@@ -353,6 +353,33 @@ fn observe_until_exit(
             });
         }
         sample.root_process_confirmed_live = exit == STILL_ACTIVE;
+        for process_sample in &sample.processes {
+            if process_sample.thread_count.is_none() {
+                // A ToolHelp snapshot can lose a process while an already-open
+                // observation handle still supplies the rest of this sample.
+                // Preserve that distinction rather than serializing a fake zero
+                // or leaving an unexplained V2 omission.
+                writer.event(
+                    EvidenceEvent::metric_unavailable(
+                        Metric::ProcessThreadCount,
+                        SubjectKind::ProcessSample,
+                        UnavailableReason::SamplingDegraded,
+                    )
+                    .with_u64("process_local_id", process_sample.process_local_id)
+                    .with_u64("sample_ordinal", index),
+                )?;
+            }
+        }
+        if sample.probe.thread_count.is_none() {
+            writer.event(
+                EvidenceEvent::metric_unavailable(
+                    Metric::ProbeThreadCount,
+                    SubjectKind::Sample,
+                    UnavailableReason::SamplingDegraded,
+                )
+                .with_u64("sample_ordinal", index),
+            )?;
+        }
         previous = Some(monotonic);
         writer.sample(sample)?;
         if exit != STILL_ACTIVE {
