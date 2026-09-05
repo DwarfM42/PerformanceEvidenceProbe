@@ -12,7 +12,7 @@ mod windows;
 
 #[cfg(target_os = "linux")]
 #[allow(dead_code)]
-mod linux;
+pub mod linux;
 
 pub fn run(
     output_root: &Path,

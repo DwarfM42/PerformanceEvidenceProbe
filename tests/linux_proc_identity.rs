@@ -1,11 +1,8 @@
 #![cfg(target_os = "linux")]
 
-#[path = "../src/runtime/linux.rs"]
-mod linux;
-
 use std::io;
 
-use linux::{
+use perf_evidence_probe::runtime::linux::{
     IdentityComparison, ProcessIdentity, compare_identity, observe_with, parse_boot_id, parse_stat,
 };
 
@@ -90,8 +87,8 @@ fn lifecycle_reader_reports_disappearance_and_changed_starttime_deterministicall
 #[test]
 fn reads_current_process_identity_twice_while_alive() {
     let pid = std::process::id();
-    let first = linux::read_identity(pid).unwrap();
-    let second = linux::read_identity(pid).unwrap();
+    let first = perf_evidence_probe::runtime::linux::read_identity(pid).unwrap();
+    let second = perf_evidence_probe::runtime::linux::read_identity(pid).unwrap();
 
     println!(
         "boot_id={} pid={} starttime={}",

@@ -1,7 +1,6 @@
 //! Bounded Linux attach evidence using a composite `/proc` process identity.
 
 use anyhow::{Result, bail};
-#[cfg(not(test))]
 use std::{
     fs,
     time::{SystemTime, UNIX_EPOCH},
@@ -11,12 +10,9 @@ use std::{
     path::Path,
 };
 
-#[cfg(not(test))]
 use anyhow::{Context, anyhow};
-#[cfg(not(test))]
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
-#[cfg(not(test))]
 use crate::{
     evidence::{
         EvidenceEvent, EvidenceWriter, Metric, ProbeSample, ProcessRecord, ProcessSample,
@@ -27,7 +23,6 @@ use crate::{
 };
 
 const MAX_PROC_BYTES: u64 = 8 * 1024;
-#[cfg(not(test))]
 const PROCESS_LOCAL_ID: u64 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -156,8 +151,27 @@ pub fn compare_identity(
     }
 }
 
-#[cfg(not(test))]
 pub fn attach(output_root: &Path, pid: u32, attach_job: bool) -> Result<()> {
+    attach_with_observation(
+        output_root,
+        pid,
+        attach_job,
+        read_stat_for_identity,
+        read_identity,
+    )
+}
+
+fn attach_with_observation<F, R>(
+    output_root: &Path,
+    pid: u32,
+    attach_job: bool,
+    mut read_stat: F,
+    mut revalidate: R,
+) -> Result<()>
+where
+    F: FnMut(&ProcessIdentity) -> Result<StatSample>,
+    R: FnMut(u32) -> io::Result<ProcessIdentity>,
+{
     if attach_job {
         bail!("--attach-job has no Linux analogue");
     }
@@ -174,10 +188,10 @@ pub fn attach(output_root: &Path, pid: u32, attach_job: bool) -> Result<()> {
         handle_acquisition_result: "proc_identity_authoritative".into(),
     })?;
 
-    let target = read_stat_for_identity(&initial)?;
+    let target = read_stat(&initial);
     let probe_identity = read_identity(std::process::id()).context("establish probe identity")?;
-    let probe = read_stat_for_identity(&probe_identity)?;
-    if read_identity(pid).context("revalidate Linux attach identity")? != initial {
+    let probe = read_stat(&probe_identity);
+    if revalidate(pid).context("revalidate Linux attach identity")? != initial {
         bail!("attached process identity changed or disappeared during observation");
     }
 
@@ -187,6 +201,35 @@ pub fn attach(output_root: &Path, pid: u32, attach_job: bool) -> Result<()> {
             SubjectKind::Run,
             UnavailableReason::SemanticMismatch,
         ))?;
+    }
+    if target.is_err() {
+        for metric in [
+            Metric::ProcessUserCpuTimeNs,
+            Metric::ProcessKernelCpuTimeNs,
+            Metric::ProcessThreadCount,
+        ] {
+            writer.event(
+                EvidenceEvent::metric_unavailable(
+                    metric,
+                    SubjectKind::ProcessSample,
+                    UnavailableReason::SamplingDegraded,
+                )
+                .with_u64("process_local_id", PROCESS_LOCAL_ID)
+                .with_u64("sample_ordinal", 0),
+            )?;
+        }
+    }
+    if probe.is_err() {
+        for metric in [Metric::ProbeUserCpuTimeNs, Metric::ProbeKernelCpuTimeNs] {
+            writer.event(
+                EvidenceEvent::metric_unavailable(
+                    metric,
+                    SubjectKind::Sample,
+                    UnavailableReason::SamplingDegraded,
+                )
+                .with_u64("sample_ordinal", 0),
+            )?;
+        }
     }
     writer.sample(SampleRecord {
         schema_draft_version: "perf-evidence-v2-draft",
@@ -203,15 +246,23 @@ pub fn attach(output_root: &Path, pid: u32, attach_job: bool) -> Result<()> {
             process_local_id: PROCESS_LOCAL_ID,
             working_set_bytes: None,
             private_bytes: None,
-            user_cpu_time_ns: ticks_to_ns(target.user_ticks)?,
-            kernel_cpu_time_ns: ticks_to_ns(target.kernel_ticks)?,
+            user_cpu_time_ns: target
+                .as_ref()
+                .ok()
+                .map(|value| ticks_to_ns(value.user_ticks))
+                .transpose()?,
+            kernel_cpu_time_ns: target
+                .as_ref()
+                .ok()
+                .map(|value| ticks_to_ns(value.kernel_ticks))
+                .transpose()?,
             read_bytes: None,
             write_bytes: None,
             other_bytes: None,
             read_operations: None,
             write_operations: None,
             other_operations: None,
-            thread_count: Some(target.thread_count),
+            thread_count: target.as_ref().ok().map(|value| value.thread_count),
             handle_count: None,
         }],
         job: None,
@@ -227,8 +278,16 @@ pub fn attach(output_root: &Path, pid: u32, attach_job: bool) -> Result<()> {
         probe: ProbeSample {
             working_set_bytes: None,
             private_bytes: None,
-            user_cpu_time_ns: ticks_to_ns(probe.user_ticks)?,
-            kernel_cpu_time_ns: ticks_to_ns(probe.kernel_ticks)?,
+            user_cpu_time_ns: probe
+                .as_ref()
+                .ok()
+                .map(|value| ticks_to_ns(value.user_ticks))
+                .transpose()?,
+            kernel_cpu_time_ns: probe
+                .as_ref()
+                .ok()
+                .map(|value| ticks_to_ns(value.kernel_ticks))
+                .transpose()?,
             read_bytes: None,
             write_bytes: None,
             thread_count: None,
@@ -246,13 +305,6 @@ pub fn attach(output_root: &Path, pid: u32, attach_job: bool) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-#[allow(dead_code)]
-pub fn attach(_output_root: &Path, _pid: u32, _attach_job: bool) -> Result<()> {
-    bail!("Linux attach is not available in a path-included identity test")
-}
-
-#[cfg(not(test))]
 fn run_semantic_mismatches() -> [Metric; 22] {
     [
         Metric::ProcessWorkingSetBytes,
@@ -280,7 +332,6 @@ fn run_semantic_mismatches() -> [Metric; 22] {
     ]
 }
 
-#[cfg(not(test))]
 fn read_stat_for_identity(identity: &ProcessIdentity) -> Result<StatSample> {
     let stat = read_limited(&format!("/proc/{}/stat", identity.pid))?;
     let sample = parse_stat_sample(identity.pid, &identity.boot_id, &stat)?;
@@ -301,7 +352,6 @@ fn read_limited(path: &str) -> io::Result<String> {
     String::from_utf8(bytes).map_err(|_| invalid("proc record is not UTF-8"))
 }
 
-#[cfg(not(test))]
 fn ticks_to_ns(ticks: u64) -> Result<u64> {
     let ticks_per_second = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
     if ticks_per_second <= 0 {
@@ -322,14 +372,12 @@ fn ticks_to_ns(ticks: u64) -> Result<u64> {
         .context("overflow converting Linux clock ticks to nanoseconds")
 }
 
-#[cfg(not(test))]
 fn utc_now() -> Result<String> {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
         .context("format Linux attach UTC timestamp")
 }
 
-#[cfg(not(test))]
 fn unique_bundle_name(kind: &str) -> String {
     format!(
         "{kind}-{}",
@@ -342,4 +390,251 @@ fn unique_bundle_name(kind: &str) -> String {
 
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn target_stat_loss_persists_exact_degraded_process_sample() {
+        let output = tempfile::tempdir().unwrap();
+        let pid = std::process::id();
+        let mut target_calls = 0_u8;
+
+        attach_with_observation(
+            output.path(),
+            pid,
+            false,
+            |identity| {
+                if identity.pid == pid && target_calls == 0 {
+                    target_calls += 1;
+                    return Err(anyhow!("deterministic target stat loss"));
+                }
+                read_stat_for_identity(identity)
+            },
+            read_identity,
+        )
+        .unwrap();
+
+        let bundle = std::fs::read_dir(output.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let sample: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(bundle.join("samples.ndjson")).unwrap())
+                .unwrap();
+        let row = &sample["processes"][0];
+        for field in ["thread_count", "user_cpu_time_ns", "kernel_cpu_time_ns"] {
+            assert!(row.get(field).is_none(), "{field} must be absent, not zero");
+        }
+        let events = std::fs::read_to_string(bundle.join("events.ndjson")).unwrap();
+        for metric in [
+            "process.thread_count",
+            "process.user_cpu_time_ns",
+            "process.kernel_cpu_time_ns",
+        ] {
+            assert!(events.contains(metric));
+        }
+        assert_eq!(events.matches("sampling_degraded").count(), 3);
+        assert!(events.matches("\"process_local_id\":1").count() >= 3);
+        assert!(events.matches("\"sample_ordinal\":0").count() >= 3);
+        let summary: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(bundle.join("summary.json")).unwrap()).unwrap();
+        assert_eq!(summary["measurement_validity"], "DEGRADED");
+    }
+
+    #[test]
+    fn probe_stat_loss_preserves_target_and_emits_only_probe_events() {
+        let output = tempfile::tempdir().unwrap();
+        let pid = std::process::id();
+        let mut calls = 0_u8;
+        attach_with_observation(
+            output.path(),
+            pid,
+            false,
+            |identity| {
+                calls += 1;
+                if calls == 2 {
+                    return Err(anyhow!("deterministic probe stat loss"));
+                }
+                read_stat_for_identity(identity)
+            },
+            read_identity,
+        )
+        .unwrap();
+        let bundle = std::fs::read_dir(output.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let sample: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(bundle.join("samples.ndjson")).unwrap())
+                .unwrap();
+        assert!(sample["processes"][0]["user_cpu_time_ns"].is_number());
+        assert!(sample["processes"][0]["kernel_cpu_time_ns"].is_number());
+        assert!(sample["processes"][0]["thread_count"].is_number());
+        assert!(sample["probe"].get("user_cpu_time_ns").is_none());
+        assert!(sample["probe"].get("kernel_cpu_time_ns").is_none());
+        let events = std::fs::read_to_string(bundle.join("events.ndjson")).unwrap();
+        assert_eq!(events.matches("sampling_degraded").count(), 2);
+        assert!(events.contains("probe.user_cpu_time_ns"));
+        assert!(events.contains("probe.kernel_cpu_time_ns"));
+        assert!(!events.contains("process.user_cpu_time_ns\",\"subject_kind\":\"PROCESS_SAMPLE"));
+    }
+
+    #[test]
+    fn replacement_at_revalidation_leaves_no_completed_bundle() {
+        let output = tempfile::tempdir().unwrap();
+        let pid = std::process::id();
+        let initial = read_identity(pid).unwrap();
+        let replacement =
+            ProcessIdentity::new(pid, &initial.boot_id, initial.starttime + 1).unwrap();
+        assert!(
+            attach_with_observation(
+                output.path(),
+                pid,
+                false,
+                read_stat_for_identity,
+                move |_| Ok(replacement.clone()),
+            )
+            .is_err()
+        );
+        let bundle = std::fs::read_dir(output.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        assert!(!bundle.join("manifest.json").exists());
+        assert!(!bundle.join("summary.json").exists());
+    }
+
+    #[test]
+    fn disappearance_at_revalidation_is_raw_only_without_final_live_sample() {
+        let output = tempfile::tempdir().unwrap();
+        let pid = std::process::id();
+        assert!(
+            attach_with_observation(output.path(), pid, false, read_stat_for_identity, |_| Err(
+                io::Error::new(io::ErrorKind::NotFound, "target disappeared")
+            ),)
+            .is_err()
+        );
+        let bundle = std::fs::read_dir(output.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        assert!(!bundle.join("summary.json").exists());
+        assert!(!bundle.join("manifest.json").exists());
+        assert!(
+            std::fs::read_to_string(bundle.join("samples.ndjson"))
+                .unwrap_or_default()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn producer_shaped_operational_event_mutations_fail_closed() {
+        let output = tempfile::tempdir().unwrap();
+        let pid = std::process::id();
+        let mut target_calls = 0_u8;
+        attach_with_observation(
+            output.path(),
+            pid,
+            false,
+            |identity| {
+                if identity.pid == pid && target_calls == 0 {
+                    target_calls += 1;
+                    return Err(anyhow!("deterministic target stat loss"));
+                }
+                read_stat_for_identity(identity)
+            },
+            read_identity,
+        )
+        .unwrap();
+        let bundle = std::fs::read_dir(output.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let events_path = bundle.join("events.ndjson");
+        let original = std::fs::read_to_string(&events_path).unwrap();
+        for replacement in [
+            ("\"process_local_id\":1", "\"process_local_id\":9"),
+            ("\"sample_ordinal\":0", "\"sample_ordinal\":1"),
+            ("process.user_cpu_time_ns", "process.private_bytes"),
+            (
+                "\"subject_kind\":\"PROCESS_SAMPLE\"",
+                "\"subject_kind\":\"PROCESS\"",
+            ),
+        ] {
+            std::fs::write(
+                &events_path,
+                original.replacen(replacement.0, replacement.1, 1),
+            )
+            .unwrap();
+            assert!(regenerate_summary(&bundle).is_err(), "{:?}", replacement);
+        }
+        std::fs::write(
+            &events_path,
+            format!("{original}{}", original.lines().next().unwrap()),
+        )
+        .unwrap();
+        assert!(regenerate_summary(&bundle).is_err());
+    }
+
+    #[test]
+    fn observed_zero_cpu_is_numeric_without_unavailable_events() {
+        let output = tempfile::tempdir().unwrap();
+        let pid = std::process::id();
+        attach_with_observation(
+            output.path(),
+            pid,
+            false,
+            |identity| {
+                let mut observed = read_stat_for_identity(identity)?;
+                observed.user_ticks = 0;
+                observed.kernel_ticks = 0;
+                assert_ne!(observed.thread_count, 0);
+                Ok(observed)
+            },
+            read_identity,
+        )
+        .unwrap();
+        let bundle = std::fs::read_dir(output.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let sample: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(bundle.join("samples.ndjson")).unwrap())
+                .unwrap();
+        for value in [
+            &sample["processes"][0]["user_cpu_time_ns"],
+            &sample["processes"][0]["kernel_cpu_time_ns"],
+            &sample["probe"]["user_cpu_time_ns"],
+            &sample["probe"]["kernel_cpu_time_ns"],
+        ] {
+            assert_eq!(value, 0);
+        }
+        let events = std::fs::read_to_string(bundle.join("events.ndjson")).unwrap();
+        for metric in [
+            "process.user_cpu_time_ns",
+            "process.kernel_cpu_time_ns",
+            "probe.user_cpu_time_ns",
+            "probe.kernel_cpu_time_ns",
+        ] {
+            assert!(!events.contains(metric));
+        }
+        let summary: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(bundle.join("summary.json")).unwrap()).unwrap();
+        assert_eq!(summary["measurement_validity"], "VALID");
+    }
 }
