@@ -10,6 +10,10 @@ use anyhow::bail;
 #[cfg(windows)]
 mod windows;
 
+#[cfg(target_os = "linux")]
+#[allow(dead_code)]
+mod linux;
+
 pub fn run(
     output_root: &Path,
     max_retained_process_handles: usize,
