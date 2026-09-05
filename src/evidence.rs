@@ -50,8 +50,10 @@ pub struct ProcessSample {
     pub working_set_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub private_bytes: Option<u64>,
-    pub user_cpu_time_ns: u64,
-    pub kernel_cpu_time_ns: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_cpu_time_ns: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kernel_cpu_time_ns: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub read_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -91,8 +93,10 @@ pub struct ProbeSample {
     pub working_set_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub private_bytes: Option<u64>,
-    pub user_cpu_time_ns: u64,
-    pub kernel_cpu_time_ns: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_cpu_time_ns: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kernel_cpu_time_ns: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub read_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -195,6 +199,8 @@ impl EvidenceEvent {
 pub enum Metric {
     ProcessWorkingSetBytes,
     ProcessPrivateBytes,
+    ProcessUserCpuTimeNs,
+    ProcessKernelCpuTimeNs,
     ProcessReadBytes,
     ProcessWriteBytes,
     ProcessOtherBytes,
@@ -205,6 +211,8 @@ pub enum Metric {
     ProcessHandleCount,
     ProbeWorkingSetBytes,
     ProbePrivateBytes,
+    ProbeUserCpuTimeNs,
+    ProbeKernelCpuTimeNs,
     ProbeReadBytes,
     ProbeWriteBytes,
     ProbeThreadCount,
@@ -222,6 +230,8 @@ impl Metric {
         match self {
             Self::ProcessWorkingSetBytes => "process.working_set_bytes",
             Self::ProcessPrivateBytes => "process.private_bytes",
+            Self::ProcessUserCpuTimeNs => "process.user_cpu_time_ns",
+            Self::ProcessKernelCpuTimeNs => "process.kernel_cpu_time_ns",
             Self::ProcessReadBytes => "process.read_bytes",
             Self::ProcessWriteBytes => "process.write_bytes",
             Self::ProcessOtherBytes => "process.other_bytes",
@@ -232,6 +242,8 @@ impl Metric {
             Self::ProcessHandleCount => "process.handle_count",
             Self::ProbeWorkingSetBytes => "probe.working_set_bytes",
             Self::ProbePrivateBytes => "probe.private_bytes",
+            Self::ProbeUserCpuTimeNs => "probe.user_cpu_time_ns",
+            Self::ProbeKernelCpuTimeNs => "probe.kernel_cpu_time_ns",
             Self::ProbeReadBytes => "probe.read_bytes",
             Self::ProbeWriteBytes => "probe.write_bytes",
             Self::ProbeThreadCount => "probe.thread_count",
