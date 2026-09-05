@@ -49,6 +49,7 @@ use crate::{
     evidence::{
         EvidenceEvent, EvidenceWriter, JobAccounting, Metric, ProbeSample, ProcessRecord,
         ProcessSample, SampleRecord, SubjectKind, SystemSample, UnavailableReason,
+        write_completed_bundle_manifest,
     },
     summary::regenerate_summary,
 };
@@ -568,10 +569,16 @@ fn one_sample(
         Some(handle) => Some(job_accounting(handle)?),
         None => None,
     };
-    let process_set_working_set_sum_bytes = processes
-        .iter()
-        .map(|sample| sample.working_set_bytes)
-        .sum();
+    let process_set_working_set_sum_bytes = Some(
+        processes
+            .iter()
+            .map(|sample| {
+                sample
+                    .working_set_bytes
+                    .expect("Windows working set bytes are present")
+            })
+            .sum(),
+    );
     let process_set_private_bytes_sum = Some(
         processes
             .iter()
@@ -634,12 +641,12 @@ fn process_sample(process: HANDLE, process_local_id: u64) -> Result<ProcessSampl
     }
     Ok(ProcessSample {
         process_local_id,
-        working_set_bytes: memory.WorkingSetSize as u64,
+        working_set_bytes: Some(memory.WorkingSetSize as u64),
         private_bytes: Some(memory.PrivateUsage as u64),
         user_cpu_time_ns: filetime_to_ns(user),
         kernel_cpu_time_ns: filetime_to_ns(kernel),
-        read_bytes: io.ReadTransferCount,
-        write_bytes: io.WriteTransferCount,
+        read_bytes: Some(io.ReadTransferCount),
+        write_bytes: Some(io.WriteTransferCount),
         other_bytes: Some(io.OtherTransferCount),
         read_operations: Some(io.ReadOperationCount),
         write_operations: Some(io.WriteOperationCount),
@@ -785,8 +792,14 @@ fn emit_terminal_event(
             .with_u64("exit_code", exit_code as u64)
             .with_u64("terminal_user_cpu_time_ns", sample.user_cpu_time_ns)
             .with_u64("terminal_kernel_cpu_time_ns", sample.kernel_cpu_time_ns)
-            .with_u64("terminal_read_bytes", sample.read_bytes)
-            .with_u64("terminal_write_bytes", sample.write_bytes)
+            .with_u64(
+                "terminal_read_bytes",
+                sample.read_bytes.expect("Windows read bytes are present"),
+            )
+            .with_u64(
+                "terminal_write_bytes",
+                sample.write_bytes.expect("Windows write bytes are present"),
+            )
             .with_string("terminal_counter_fidelity", "attempted_after_exit"),
     )
 }
@@ -929,51 +942,20 @@ fn write_bundle_metadata(
     ] {
         fs::write(bundle.join(name), serde_json::to_vec_pretty(&value)?)?;
     }
-    let artifacts = [
-        "host.json",
-        "target.json",
-        "config.json",
-        "capabilities.json",
-        "processes.ndjson",
-        "samples.ndjson",
-        "events.ndjson",
-        "summary.json",
-    ]
-    .into_iter()
-    .map(|name| {
-        let path = bundle.join(name);
-        json!({"path": name, "size_bytes": path.metadata().map(|meta| meta.len()).unwrap_or(0)})
-    })
-    .collect::<Vec<_>>();
-    let measurement_validity = fs::read(bundle.join("summary.json"))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-        .and_then(|summary| {
-            summary
-                .get("measurement_validity")
-                .and_then(|value| value.as_str())
-                .map(str::to_owned)
-        })
-        .unwrap_or_else(|| "INVALID".into());
-    let manifest = json!({
-        "run_id": bundle.file_name().and_then(|name| name.to_str()).unwrap_or("unknown"),
-        "schema_draft_version": "perf-evidence-v2-draft",
-        "probe_version": env!("CARGO_PKG_VERSION"),
-        "probe_build_identity": concat!(env!("CARGO_PKG_NAME"), "-", env!("CARGO_PKG_VERSION")),
-        "run_state": if exit_code == Some(0) { "COMPLETE" } else { "TARGET_FAILED" },
-        "artifact_list": artifacts,
-        "measurement_validity": measurement_validity,
-        "measurement_completeness": fs::read(bundle.join("summary.json"))
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-            .and_then(|summary| summary.get("measurement_completeness").and_then(|value| value.as_str()).map(str::to_owned))
-            .unwrap_or_else(|| "INVALID".into()),
-    });
-    fs::write(
-        bundle.join("manifest.json"),
-        serde_json::to_vec_pretty(&manifest)?,
-    )?;
-    Ok(())
+    write_completed_bundle_manifest(
+        bundle,
+        if exit_code == Some(0) {
+            "COMPLETE"
+        } else {
+            "TARGET_FAILED"
+        },
+        &[
+            "host.json",
+            "target.json",
+            "config.json",
+            "capabilities.json",
+        ],
+    )
 }
 
 fn windows_version() -> Result<(u32, u32, u32)> {
