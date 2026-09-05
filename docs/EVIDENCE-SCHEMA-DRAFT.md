@@ -93,8 +93,9 @@ reconstructed validity and completeness; it cannot rehabilitate raw evidence.
 
 Windows numeric values retain their qualified Win32 meanings. A non-equivalent
 platform proxy must be declared `semantic_mismatch`, not serialized as the
-Windows-derived canonical metric. V2 does not claim macOS or Linux collection
-support.
+Windows-derived canonical metric. Linux and macOS collectors may emit only
+their qualified direct-root observations and exact unavailability declarations;
+they do not make Windows-equivalence or descendant-closure claims.
 
 Compatibility is directional: the new reader accepts historical fully numeric
 v0.1 evidence (including absent process stream where no new process-scoped

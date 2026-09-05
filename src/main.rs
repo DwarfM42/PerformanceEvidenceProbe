@@ -8,7 +8,7 @@ use perf_evidence_probe::summary::regenerate_summary;
 #[command(
     name = "perf-probe",
     version,
-    about = "Windows-first raw performance evidence collector"
+    about = "Cross-platform raw performance evidence collector"
 )]
 struct Cli {
     #[command(subcommand)]

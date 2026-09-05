@@ -314,6 +314,13 @@ impl EvidenceWriter {
             return Err(anyhow!("writer queue capacity must be positive"));
         }
         fs::create_dir_all(bundle).context("create evidence bundle directory")?;
+        // A launch can fail immediately after the bundle is admitted. Create
+        // every raw stream before that boundary so prelaunch failures retain a
+        // truthful, empty raw-only bundle rather than a scheduling-dependent
+        // subset of stream files.
+        for name in ["processes.ndjson", "samples.ndjson", "events.ndjson"] {
+            open_stream(bundle, name)?;
+        }
         let (sender, receiver) = bounded(queue_capacity);
         let bundle = bundle.to_path_buf();
         let thread = thread::Builder::new()

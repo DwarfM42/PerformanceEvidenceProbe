@@ -1,9 +1,14 @@
-# Cross-platform common-contract qualification — Linux runtime
+# Historical cross-platform common-contract qualification — Linux runtime
 
 **Candidate base:** `141b9c107bd2b8a9a13b85e645762c2add746d3e`
 
 **Linux evidence inspected read-only:** `0adf9ed64094e645e8a812fbdd1dd36fe8f21e7c`
-**Scope:** common evidence contract, deterministic reconstruction, completed-bundle boundary, and the requirements a future Linux `attach`/`run` implementation must meet. This is a static qualification matrix plus deterministic common-contract fixtures; it is not Linux runtime qualification.
+**Scope at the recorded candidate:** common evidence contract, deterministic
+reconstruction, completed-bundle boundary, and the requirements a future Linux
+`attach`/`run` implementation had to meet. This is a historical static
+qualification matrix plus deterministic common-contract fixtures; it predates
+the qualified Linux and macOS runtime collectors. Current support claims are in
+the root README, known limitations, and v0.2.0 release notes.
 
 ## Classification and availability rules
 
