@@ -264,6 +264,7 @@ fn linux_contract_fixture_is_valid_partial_without_linux_runtime_collection() {
         "private_bytes",
         "read_bytes",
         "write_bytes",
+        "handle_count",
     ] {
         probe.remove(field);
     }
@@ -280,6 +281,7 @@ fn linux_contract_fixture_is_valid_partial_without_linux_runtime_collection() {
         json!({"record_type":"metric_unavailable","metric":"probe.private_bytes","subject_kind":"RUN","reason":"semantic_mismatch"}),
         json!({"record_type":"metric_unavailable","metric":"probe.read_bytes","subject_kind":"RUN","reason":"semantic_mismatch"}),
         json!({"record_type":"metric_unavailable","metric":"probe.write_bytes","subject_kind":"RUN","reason":"semantic_mismatch"}),
+        json!({"record_type":"metric_unavailable","metric":"probe.handle_count","subject_kind":"RUN","reason":"semantic_mismatch"}),
     ];
     let result = summary(&bundle(record, vec![process()], events));
     assert_eq!(result["measurement_validity"], "VALID");
