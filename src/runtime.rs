@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use anyhow::Result;
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(target_os = "linux")))]
 use anyhow::bail;
 
 #[cfg(windows)]
@@ -23,7 +23,11 @@ pub fn run(
     {
         return windows::run(output_root, max_retained_process_handles, command);
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        return linux::run(output_root, max_retained_process_handles, command);
+    }
+    #[cfg(all(not(windows), not(target_os = "linux")))]
     {
         let _ = (output_root, max_retained_process_handles, command);
         bail!("perf-probe run requires Windows")

@@ -3,7 +3,10 @@
 use anyhow::{Result, bail};
 use std::{
     fs,
-    time::{SystemTime, UNIX_EPOCH},
+    os::unix::process::ExitStatusExt,
+    process::Command,
+    thread,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use std::{
     io::{self, Read},
@@ -159,6 +162,310 @@ pub fn attach(output_root: &Path, pid: u32, attach_job: bool) -> Result<()> {
         read_stat_for_identity,
         read_identity,
     )
+}
+
+pub fn run(
+    output_root: &Path,
+    max_retained_process_handles: usize,
+    command: &[String],
+) -> Result<()> {
+    run_with_observation(
+        output_root,
+        max_retained_process_handles,
+        command,
+        read_stat_for_identity,
+    )
+}
+
+fn run_with_observation<F>(
+    output_root: &Path,
+    max_retained_process_handles: usize,
+    command: &[String],
+    read_stat: F,
+) -> Result<()>
+where
+    F: FnMut(&ProcessIdentity) -> Result<StatSample>,
+{
+    run_with_observation_and_revalidation(
+        output_root,
+        max_retained_process_handles,
+        command,
+        read_stat,
+        read_identity,
+    )
+}
+
+fn run_with_observation_and_revalidation<F, R>(
+    output_root: &Path,
+    max_retained_process_handles: usize,
+    command: &[String],
+    mut read_stat: F,
+    mut revalidate: R,
+) -> Result<()>
+where
+    F: FnMut(&ProcessIdentity) -> Result<StatSample>,
+    R: FnMut(u32) -> io::Result<ProcessIdentity>,
+{
+    if command.is_empty() || max_retained_process_handles == 0 {
+        bail!("run requires command and a positive handle limit");
+    }
+
+    let bundle = output_root.join(unique_bundle_name("run"));
+    let writer = EvidenceWriter::start(&bundle, 16)?;
+    let mut child = Command::new(&command[0])
+        .args(&command[1..])
+        .spawn()
+        .context("spawn direct Linux run root")?;
+    let pid = child.id();
+    let identity = read_identity(pid).context("establish direct Linux run root identity")?;
+    writer.process(ProcessRecord {
+        process_local_id: PROCESS_LOCAL_ID,
+        pid,
+        process_start_time: identity.starttime,
+        boot_identity: identity.boot_id.clone(),
+        parent_local_id: None,
+        discovery_source: "linux_run_direct_root".into(),
+        handle_acquisition_result: "owned_child_wait_handle".into(),
+    })?;
+    let mut sample_ordinal = 0_u64;
+    let mut semantic_events_written = false;
+    let status = loop {
+        if let Some(status) = child.try_wait().context("poll direct Linux run root")? {
+            break status;
+        }
+        let target = read_stat(&identity);
+        let probe_identity =
+            read_identity(std::process::id()).context("establish probe identity")?;
+        let probe = read_stat(&probe_identity);
+        match revalidate(pid) {
+            Ok(revalidated) if revalidated == identity => {}
+            Ok(_) | Err(_) if sample_ordinal > 0 => {
+                break child
+                    .wait()
+                    .context("wait after final Linux run identity loss")?;
+            }
+            Ok(_) | Err(_) => {
+                let _ = child.wait();
+                bail!("direct Linux run root identity changed or disappeared during observation");
+            }
+        }
+        if target.is_err() && probe.is_err() {
+            if sample_ordinal > 0 {
+                break child
+                    .wait()
+                    .context("wait after unusable Linux run sample")?;
+            }
+            let _ = child.wait();
+            bail!("no usable direct Linux run sample was observed");
+        }
+
+        if !semantic_events_written {
+            for metric in run_semantic_mismatches() {
+                writer.event(EvidenceEvent::metric_unavailable(
+                    metric,
+                    SubjectKind::Run,
+                    UnavailableReason::SemanticMismatch,
+                ))?;
+            }
+            semantic_events_written = true;
+        }
+        if let Err(error) = &target {
+            for metric in [
+                Metric::ProcessUserCpuTimeNs,
+                Metric::ProcessKernelCpuTimeNs,
+                Metric::ProcessThreadCount,
+            ] {
+                writer.event(
+                    EvidenceEvent::metric_unavailable(
+                        metric,
+                        SubjectKind::ProcessSample,
+                        operational_unavailable_reason(error),
+                    )
+                    .with_u64("process_local_id", PROCESS_LOCAL_ID)
+                    .with_u64("sample_ordinal", sample_ordinal),
+                )?;
+            }
+        }
+        if let Err(error) = &probe {
+            for metric in [Metric::ProbeUserCpuTimeNs, Metric::ProbeKernelCpuTimeNs] {
+                writer.event(
+                    EvidenceEvent::metric_unavailable(
+                        metric,
+                        SubjectKind::Sample,
+                        operational_unavailable_reason(error),
+                    )
+                    .with_u64("sample_ordinal", sample_ordinal),
+                )?;
+            }
+        }
+        writer.sample(SampleRecord {
+            schema_draft_version: "perf-evidence-v2-draft",
+            record_type: "sample",
+            wall_time_utc: utc_now()?,
+            monotonic_ns: 0,
+            scheduled_monotonic_ns: 0,
+            sampling_delay_ns: 0,
+            gap_from_previous_sample_ns: None,
+            root_process_confirmed_live: true,
+            process_set_working_set_sum_bytes: None,
+            process_set_private_bytes_sum: None,
+            processes: vec![ProcessSample {
+                process_local_id: PROCESS_LOCAL_ID,
+                working_set_bytes: None,
+                private_bytes: None,
+                user_cpu_time_ns: target
+                    .as_ref()
+                    .ok()
+                    .map(|value| ticks_to_ns(value.user_ticks))
+                    .transpose()?,
+                kernel_cpu_time_ns: target
+                    .as_ref()
+                    .ok()
+                    .map(|value| ticks_to_ns(value.kernel_ticks))
+                    .transpose()?,
+                read_bytes: None,
+                write_bytes: None,
+                other_bytes: None,
+                read_operations: None,
+                write_operations: None,
+                other_operations: None,
+                thread_count: target.as_ref().ok().map(|value| value.thread_count),
+                handle_count: None,
+            }],
+            job: None,
+            system: SystemSample {
+                system_user_cpu_time_ns: None,
+                system_kernel_cpu_time_ns: None,
+                system_idle_cpu_time_ns: None,
+                available_physical_memory_bytes: None,
+                commit_current_bytes: None,
+                commit_limit_bytes: None,
+                disk_free_bytes: None,
+            },
+            probe: ProbeSample {
+                working_set_bytes: None,
+                private_bytes: None,
+                user_cpu_time_ns: probe
+                    .as_ref()
+                    .ok()
+                    .map(|value| ticks_to_ns(value.user_ticks))
+                    .transpose()?,
+                kernel_cpu_time_ns: probe
+                    .as_ref()
+                    .ok()
+                    .map(|value| ticks_to_ns(value.kernel_ticks))
+                    .transpose()?,
+                read_bytes: None,
+                write_bytes: None,
+                thread_count: None,
+                handle_count: None,
+            },
+        })?;
+        sample_ordinal += 1;
+        thread::sleep(Duration::from_millis(500));
+    };
+    let exit_code = status.code().map(|code| code as u32);
+    if let Some(exit_code) = exit_code {
+        writer.event(
+            EvidenceEvent::new("process_exit_observed")
+                .with_u64("process_local_id", PROCESS_LOCAL_ID)
+                .with_u64("pid", pid as u64)
+                .with_u64("exit_code", exit_code as u64),
+        )?;
+    } else {
+        writer.event(
+            EvidenceEvent::new("process_exit_observed")
+                .with_u64("process_local_id", PROCESS_LOCAL_ID)
+                .with_u64("pid", pid as u64),
+        )?;
+    }
+    writer.finish()?;
+    regenerate_summary(&bundle)?;
+    let metadata = serde_json::json!({
+        "platform": "Linux",
+        "mode": "run",
+        "root_process_identity": {
+            "process_local_id": PROCESS_LOCAL_ID,
+            "pid": pid,
+            "process_start_time": identity.starttime,
+            "boot_identity": identity.boot_id,
+        },
+        "launched_command_argv": command,
+        "root_observation_authority": "directly_owned_child_wait",
+        "represented_process_set": "direct_root_only",
+        "descendant_discovery": "not_attempted",
+        "process_tree_closure": "not_claimed",
+        "job_accounting": "not_claimed",
+        "process_group_session_cgroup_authority": "not_claimed",
+        "descendant_scope": "unknown_not_observed",
+        "root_exits_before_descendants_scope": "unknown_not_observed",
+        "full_command_line_saved": false,
+    });
+    fs::write(
+        bundle.join("platform.json"),
+        serde_json::to_vec_pretty(&metadata)?,
+    )?;
+    let mut platform_metadata = vec!["platform.json"];
+    if let Some(signal) = status.signal() {
+        let terminal = serde_json::json!({
+            "platform": "Linux",
+            "root_process_identity": {
+                "process_local_id": PROCESS_LOCAL_ID,
+                "pid": pid,
+                "process_start_time": identity.starttime,
+                "boot_identity": identity.boot_id,
+            },
+            "terminal_outcome": {
+                "kind": "signal",
+                "signal_number": signal,
+                "signal_name": linux_signal_name(signal),
+                "core_dumped": status.core_dumped(),
+            },
+        });
+        fs::write(
+            bundle.join("linux_terminal.json"),
+            serde_json::to_vec_pretty(&terminal)?,
+        )?;
+        platform_metadata.push("linux_terminal.json");
+    }
+    write_completed_bundle_manifest(
+        &bundle,
+        if exit_code == Some(0) {
+            "COMPLETE"
+        } else {
+            "TARGET_FAILED"
+        },
+        &platform_metadata,
+    )?;
+    println!("{}", bundle.display());
+    Ok(())
+}
+
+fn linux_signal_name(signal: i32) -> &'static str {
+    match signal {
+        libc::SIGHUP => "SIGHUP",
+        libc::SIGINT => "SIGINT",
+        libc::SIGQUIT => "SIGQUIT",
+        libc::SIGILL => "SIGILL",
+        libc::SIGTRAP => "SIGTRAP",
+        libc::SIGABRT => "SIGABRT",
+        libc::SIGBUS => "SIGBUS",
+        libc::SIGFPE => "SIGFPE",
+        libc::SIGKILL => "SIGKILL",
+        libc::SIGUSR1 => "SIGUSR1",
+        libc::SIGSEGV => "SIGSEGV",
+        libc::SIGUSR2 => "SIGUSR2",
+        libc::SIGPIPE => "SIGPIPE",
+        libc::SIGALRM => "SIGALRM",
+        libc::SIGTERM => "SIGTERM",
+        libc::SIGCHLD => "SIGCHLD",
+        libc::SIGCONT => "SIGCONT",
+        libc::SIGSTOP => "SIGSTOP",
+        libc::SIGTSTP => "SIGTSTP",
+        libc::SIGTTIN => "SIGTTIN",
+        libc::SIGTTOU => "SIGTTOU",
+        _ => "UNKNOWN",
+    }
 }
 
 fn attach_with_observation<F, R>(
@@ -720,5 +1027,268 @@ mod tests {
         let summary: serde_json::Value =
             serde_json::from_slice(&std::fs::read(bundle.join("summary.json")).unwrap()).unwrap();
         assert_eq!(summary["measurement_validity"], "VALID");
+    }
+
+    #[test]
+    fn run_target_stat_loss_persists_exact_degraded_root_sample_and_reconstructs() {
+        let output = tempfile::tempdir().unwrap();
+        let command = vec!["sleep".to_owned(), "1".to_owned()];
+        let mut calls = 0_u8;
+
+        run_with_observation(output.path(), 1, &command, |identity| {
+            calls += 1;
+            if calls == 1 {
+                return Err(anyhow!("deterministic run target stat source loss"));
+            }
+            read_stat_for_identity(identity)
+        })
+        .unwrap();
+
+        let bundle = std::fs::read_dir(output.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let process: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(bundle.join("processes.ndjson")).unwrap(),
+        )
+        .unwrap();
+        let samples = std::fs::read_to_string(bundle.join("samples.ndjson")).unwrap();
+        let sample: serde_json::Value =
+            serde_json::from_str(samples.lines().next().unwrap()).unwrap();
+        let events = std::fs::read_to_string(bundle.join("events.ndjson")).unwrap();
+        let summary: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(bundle.join("summary.json")).unwrap()).unwrap();
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(bundle.join("manifest.json")).unwrap()).unwrap();
+
+        for field in ["thread_count", "user_cpu_time_ns", "kernel_cpu_time_ns"] {
+            assert!(
+                sample["processes"][0].get(field).is_none(),
+                "{field} must be absent, not zero"
+            );
+        }
+        assert!(sample["probe"]["user_cpu_time_ns"].is_number());
+        assert!(sample["probe"]["kernel_cpu_time_ns"].is_number());
+        let unavailable = events
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter(|event| event["record_type"] == "metric_unavailable")
+            .filter(|event| event["subject_kind"] == "PROCESS_SAMPLE")
+            .collect::<Vec<_>>();
+        assert_eq!(unavailable.len(), 3);
+        for event in unavailable {
+            assert_eq!(event["reason"], "sampling_degraded");
+            assert_eq!(event["process_local_id"], process["process_local_id"]);
+            assert_eq!(event["sample_ordinal"], 0);
+        }
+        assert!(!events.contains("probe.user_cpu_time_ns"));
+        assert!(!events.contains("probe.kernel_cpu_time_ns"));
+        assert!(sample.get("process_set_working_set_sum_bytes").is_none());
+        assert!(sample.get("process_set_private_bytes_sum").is_none());
+        assert!(sample.get("job").is_none());
+        assert!(summary["total_cpu_time_ns"].is_null());
+        assert_eq!(summary["measurement_validity"], "DEGRADED");
+        assert_eq!(manifest["run_state"], "COMPLETE");
+        regenerate_summary(&bundle).unwrap();
+    }
+
+    #[test]
+    fn run_target_stat_permission_loss_is_exactly_authority_unavailable() {
+        let output = tempfile::tempdir().unwrap();
+        let command = vec!["sleep".to_owned(), "1".to_owned()];
+        let mut calls = 0_u8;
+
+        run_with_observation(output.path(), 1, &command, |identity| {
+            calls += 1;
+            if calls == 1 {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "deterministic run target stat access loss",
+                )
+                .into());
+            }
+            read_stat_for_identity(identity)
+        })
+        .unwrap();
+
+        let bundle = std::fs::read_dir(output.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let samples = std::fs::read_to_string(bundle.join("samples.ndjson")).unwrap();
+        let sample: serde_json::Value =
+            serde_json::from_str(samples.lines().next().unwrap()).unwrap();
+        let events = std::fs::read_to_string(bundle.join("events.ndjson")).unwrap();
+        for field in ["thread_count", "user_cpu_time_ns", "kernel_cpu_time_ns"] {
+            assert!(sample["processes"][0].get(field).is_none());
+        }
+        let unavailable = events
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter(|event| event["record_type"] == "metric_unavailable")
+            .filter(|event| event["subject_kind"] == "PROCESS_SAMPLE")
+            .collect::<Vec<_>>();
+        assert_eq!(unavailable.len(), 3);
+        for event in unavailable {
+            assert_eq!(event["reason"], "authority_unavailable");
+            assert_eq!(event["process_local_id"], PROCESS_LOCAL_ID);
+            assert_eq!(event["sample_ordinal"], 0);
+        }
+        assert!(!events.contains("sampling_degraded"));
+        assert!(sample["probe"]["user_cpu_time_ns"].is_number());
+        assert!(sample["probe"]["kernel_cpu_time_ns"].is_number());
+        regenerate_summary(&bundle).unwrap();
+    }
+
+    #[test]
+    fn run_probe_stat_loss_preserves_root_and_emits_exact_sample_declarations() {
+        let output = tempfile::tempdir().unwrap();
+        let command = vec!["sleep".to_owned(), "1".to_owned()];
+        let mut calls = 0_u8;
+
+        run_with_observation(output.path(), 1, &command, |identity| {
+            calls += 1;
+            if calls == 2 {
+                return Err(anyhow!("deterministic run probe stat source loss"));
+            }
+            read_stat_for_identity(identity)
+        })
+        .unwrap();
+
+        let bundle = std::fs::read_dir(output.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let samples = std::fs::read_to_string(bundle.join("samples.ndjson")).unwrap();
+        let sample: serde_json::Value =
+            serde_json::from_str(samples.lines().next().unwrap()).unwrap();
+        let events = std::fs::read_to_string(bundle.join("events.ndjson")).unwrap();
+        assert!(sample["processes"][0]["user_cpu_time_ns"].is_number());
+        assert!(sample["processes"][0]["kernel_cpu_time_ns"].is_number());
+        assert!(sample["processes"][0]["thread_count"].is_number());
+        assert!(sample["probe"].get("user_cpu_time_ns").is_none());
+        assert!(sample["probe"].get("kernel_cpu_time_ns").is_none());
+        let unavailable = events
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter(|event| event["record_type"] == "metric_unavailable")
+            .filter(|event| event["subject_kind"] == "SAMPLE")
+            .collect::<Vec<_>>();
+        assert_eq!(unavailable.len(), 2);
+        for event in unavailable {
+            assert_eq!(event["reason"], "sampling_degraded");
+            assert_eq!(event["sample_ordinal"], 0);
+            assert!(event.get("process_local_id").is_none());
+        }
+        assert!(
+            !events
+                .contains("\"subject_kind\":\"PROCESS_SAMPLE\",\"reason\":\"sampling_degraded\"")
+        );
+        regenerate_summary(&bundle).unwrap();
+    }
+
+    #[test]
+    fn run_simultaneous_target_and_probe_loss_leaves_only_raw_evidence() {
+        let output = tempfile::tempdir().unwrap();
+        let command = vec!["sleep".to_owned(), "1".to_owned()];
+
+        assert!(
+            run_with_observation(output.path(), 1, &command, |_| {
+                Err(anyhow!("deterministic run stat source loss"))
+            })
+            .is_err()
+        );
+
+        let bundle = std::fs::read_dir(output.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        assert!(
+            std::fs::read_to_string(bundle.join("samples.ndjson"))
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            std::fs::read_to_string(bundle.join("events.ndjson"))
+                .unwrap()
+                .is_empty()
+        );
+        assert!(!bundle.join("summary.json").exists());
+        assert!(!bundle.join("manifest.json").exists());
+    }
+
+    #[test]
+    fn run_zero_root_and_probe_cpu_remain_numeric_without_operational_events() {
+        let output = tempfile::tempdir().unwrap();
+        let command = vec!["sleep".to_owned(), "1".to_owned()];
+
+        run_with_observation(output.path(), 1, &command, |identity| {
+            let mut observed = read_stat_for_identity(identity)?;
+            observed.user_ticks = 0;
+            observed.kernel_ticks = 0;
+            Ok(observed)
+        })
+        .unwrap();
+
+        let bundle = std::fs::read_dir(output.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let samples = std::fs::read_to_string(bundle.join("samples.ndjson")).unwrap();
+        let sample: serde_json::Value =
+            serde_json::from_str(samples.lines().next().unwrap()).unwrap();
+        let events = std::fs::read_to_string(bundle.join("events.ndjson")).unwrap();
+        for value in [
+            &sample["processes"][0]["user_cpu_time_ns"],
+            &sample["processes"][0]["kernel_cpu_time_ns"],
+            &sample["probe"]["user_cpu_time_ns"],
+            &sample["probe"]["kernel_cpu_time_ns"],
+        ] {
+            assert_eq!(value, 0);
+        }
+        assert!(!events.contains("sampling_degraded"));
+        assert!(!events.contains("authority_unavailable"));
+        regenerate_summary(&bundle).unwrap();
+    }
+
+    #[test]
+    fn run_missing_final_live_identity_leaves_no_completed_bundle() {
+        let output = tempfile::tempdir().unwrap();
+        let command = vec!["sleep".to_owned(), "1".to_owned()];
+
+        assert!(
+            run_with_observation_and_revalidation(
+                output.path(),
+                1,
+                &command,
+                read_stat_for_identity,
+                |_| Err(io::Error::new(io::ErrorKind::NotFound, "root disappeared")),
+            )
+            .is_err()
+        );
+
+        let bundle = std::fs::read_dir(output.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        assert!(
+            std::fs::read_to_string(bundle.join("samples.ndjson"))
+                .unwrap()
+                .is_empty()
+        );
+        assert!(!bundle.join("summary.json").exists());
+        assert!(!bundle.join("manifest.json").exists());
     }
 }
