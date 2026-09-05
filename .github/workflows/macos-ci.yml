@@ -1,0 +1,30 @@
+name: macOS CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  macos-ci:
+    name: macos-ci
+    runs-on: macos-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm repository Rust toolchain selection
+        run: rustup show active-toolchain
+      - name: Check formatting
+        run: bash scripts/cargo-local.sh fmt --check
+      - name: Run canonical test suite
+        run: bash scripts/cargo-local.sh test --all-targets --locked -- --nocapture
+      - name: Run macOS runtime tests
+        run: bash scripts/cargo-local.sh test --test macos_identity_contract --test macos_runtime_evidence --locked -- --nocapture
+      - name: Build release binaries
+        run: bash scripts/cargo-local.sh build --release --locked

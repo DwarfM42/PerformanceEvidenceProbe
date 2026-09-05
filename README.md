@@ -1,16 +1,17 @@
 # PerformanceEvidenceProbe
 
 [![Windows CI](https://github.com/DwarfM42/PerformanceEvidenceProbe/actions/workflows/windows-ci.yml/badge.svg?branch=main)](https://github.com/DwarfM42/PerformanceEvidenceProbe/actions/workflows/windows-ci.yml)
+[![macOS CI](https://github.com/DwarfM42/PerformanceEvidenceProbe/actions/workflows/macos-ci.yml/badge.svg?branch=main)](https://github.com/DwarfM42/PerformanceEvidenceProbe/actions/workflows/macos-ci.yml)
 
-**PerformanceEvidenceProbe is a Windows runtime performance evidence collector that observes a workload and preserves inspectable raw measurements for later analysis.**
+**PerformanceEvidenceProbe is a runtime performance evidence collector with a full-accounting Windows collector and a deliberately narrower macOS collector. It preserves inspectable raw measurements for later analysis.**
 
-Use it when you need a durable record of what a workload did while it ran: sampled process memory, CPU and I/O counters; process identities; Windows Job accounting for launched workloads; lifecycle events; and a derived summary. It is designed to preserve observations, not to decide what those observations mean.
+Use it when you need a durable record of what a workload did while it ran. The Windows collector records sampled process memory, CPU and I/O counters, process identities, Windows Job accounting for launched workloads, lifecycle events, and a derived summary. macOS records only the narrower capabilities stated below. It is designed to preserve observations, not to decide what those observations mean.
 
-**Current qualification:** PerformanceEvidenceProbe is developed and verified for Windows 10/11 x64. The documented `run` and default `attach` collection workflows are qualified only there. Their implementation uses Windows APIs and deliberately returns a `requires Windows` error on non-Windows builds, but non-Windows builds and workflows have not been qualified and should not be assumed to work. The documented Quick Start is verified with Rust and Git Bash on Windows.
+**Current qualification:** Windows remains the qualified full-accounting collector. macOS has a bounded direct-root `run` and observation-only single-root `attach` collector. Deterministic macOS tests cover composite identity validation and loss/PID-reuse handling, raw-only attach-loss artifacts, per-sample target/probe metric-unavailable bindings, argv limits, and terminal encoding; host-runtime tests cover self-attach plus controlled direct-root zero, nonzero, and signal outcomes. Its new GitHub-hosted macOS CI workflow has not yet run. macOS does not claim Job accounting, containment, descendant/process-tree closure, complete process-set totals, canonical working/private memory, handles, Windows-shaped I/O, or canonical host/commit metrics. These surfaces are emitted as exact semantic omissions, never numeric zero.
 
 GitHub Actions provides additional continuous verification on GitHub-hosted Windows runners. A green CI run verifies the repository's canonical checks there; it is not itself the Windows 10/11 x64 runtime qualification claim.
 
-Linux and macOS are intended future targets, but neither is currently qualified. Contributions are welcome, especially for platform-specific collectors and the tests needed to qualify them.
+Linux has its own bounded collector. macOS evidence is intentionally narrower than Windows evidence; M3 runtime evidence is host-specific and is not implied by hosted CI.
 
 That portability is intentional in the design. Platform-specific observation is kept separate from the Probe's evidence and interpretation boundaries: a collector observes the host and produces the raw process, sample, event, and context records; deterministic summarization operates on the persisted evidence; visualization and interpretation remain downstream. A Linux or macOS collector should therefore be able to add OS-specific observation without redefining what counts as Probe evidence. This is a design goal, not yet a cross-platform compatibility guarantee.
 
@@ -101,7 +102,7 @@ PerformanceEvidenceProbe is **not**:
 
 ## Limitations and privacy
 
-The schema is a draft, not a frozen interchange contract. Collection is currently Windows x64 only; advanced sensors, non-Windows collectors, calibration, and independent qualification are out of scope. Process-tree observation can be incomplete because of races, access restrictions, and bounded retained handles. An interrupted collector can leave parseable raw streams without a completed summary or metadata set.
+The schema is a draft, not a frozen interchange contract. The Windows full-accounting collector is qualified on Windows x64; macOS support is limited to the narrower qualification stated above. Advanced sensors, other platform collectors, calibration, and independent qualification are out of scope. Process-tree observation can be incomplete because of races, access restrictions, and bounded retained handles. An interrupted collector can leave parseable raw streams without a completed summary or metadata set.
 
 Evidence bundles can include timestamps, PIDs, executable paths where available, and host OS/hardware characteristics. Review a bundle before sharing it. Full current limits are in [Known limitations](docs/KNOWN-LIMITATIONS.md).
 
