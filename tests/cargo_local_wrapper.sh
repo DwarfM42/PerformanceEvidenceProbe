@@ -68,7 +68,7 @@ assert_wrapper_environment() {
     local path_separator
     path_prefix=$(expected_repository_path)
     if [[ -n "${MSYSTEM:-}" || "${OSTYPE:-}" == cygwin* ]]; then
-        path_separator='\\'
+        path_separator='\'
     else
         path_separator='/'
     fi

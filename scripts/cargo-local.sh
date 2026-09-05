@@ -5,7 +5,7 @@ set -euo pipefail
 repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 if [[ -n "${MSYSTEM:-}" || "${OSTYPE:-}" == cygwin* ]]; then
     repo_dir_cargo="$(cygpath -aw "$repo_dir")"
-    path_separator='\\'
+    path_separator='\'
 else
     repo_dir_cargo="$repo_dir"
     path_separator='/'
