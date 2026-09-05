@@ -46,13 +46,16 @@ impl ProcessRecord {
 #[derive(Debug, Clone, Serialize)]
 pub struct ProcessSample {
     pub process_local_id: u64,
-    pub working_set_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub working_set_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub private_bytes: Option<u64>,
     pub user_cpu_time_ns: u64,
     pub kernel_cpu_time_ns: u64,
-    pub read_bytes: u64,
-    pub write_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub write_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub other_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -84,13 +87,16 @@ pub struct JobAccounting {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProbeSample {
-    pub working_set_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub working_set_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub private_bytes: Option<u64>,
     pub user_cpu_time_ns: u64,
     pub kernel_cpu_time_ns: u64,
-    pub read_bytes: u64,
-    pub write_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub write_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_count: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -126,7 +132,8 @@ pub struct SampleRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gap_from_previous_sample_ns: Option<u64>,
     pub root_process_confirmed_live: bool,
-    pub process_set_working_set_sum_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_set_working_set_sum_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub process_set_private_bytes_sum: Option<u64>,
     pub processes: Vec<ProcessSample>,
@@ -186,14 +193,20 @@ impl EvidenceEvent {
 
 #[derive(Debug, Clone, Copy)]
 pub enum Metric {
+    ProcessWorkingSetBytes,
     ProcessPrivateBytes,
+    ProcessReadBytes,
+    ProcessWriteBytes,
     ProcessOtherBytes,
     ProcessReadOperations,
     ProcessWriteOperations,
     ProcessOtherOperations,
     ProcessThreadCount,
     ProcessHandleCount,
+    ProbeWorkingSetBytes,
     ProbePrivateBytes,
+    ProbeReadBytes,
+    ProbeWriteBytes,
     ProbeThreadCount,
     ProbeHandleCount,
     SystemUserCpuTimeNs,
@@ -207,14 +220,20 @@ pub enum Metric {
 impl Metric {
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::ProcessWorkingSetBytes => "process.working_set_bytes",
             Self::ProcessPrivateBytes => "process.private_bytes",
+            Self::ProcessReadBytes => "process.read_bytes",
+            Self::ProcessWriteBytes => "process.write_bytes",
             Self::ProcessOtherBytes => "process.other_bytes",
             Self::ProcessReadOperations => "process.read_operations",
             Self::ProcessWriteOperations => "process.write_operations",
             Self::ProcessOtherOperations => "process.other_operations",
             Self::ProcessThreadCount => "process.thread_count",
             Self::ProcessHandleCount => "process.handle_count",
+            Self::ProbeWorkingSetBytes => "probe.working_set_bytes",
             Self::ProbePrivateBytes => "probe.private_bytes",
+            Self::ProbeReadBytes => "probe.read_bytes",
+            Self::ProbeWriteBytes => "probe.write_bytes",
             Self::ProbeThreadCount => "probe.thread_count",
             Self::ProbeHandleCount => "probe.handle_count",
             Self::SystemUserCpuTimeNs => "system.system_user_cpu_time_ns",
@@ -315,6 +334,70 @@ impl EvidenceWriter {
             .map_err(|_| anyhow!("evidence writer panicked"))??;
         Ok(())
     }
+}
+
+/// Writes only the platform-neutral completion record after a runtime has
+/// finalized its raw streams, summary, and platform-specific metadata. Platform
+/// collectors retain ownership of their host/target/capability documents.
+pub fn write_completed_bundle_manifest(
+    bundle: &Path,
+    run_state: &str,
+    platform_metadata: &[&str],
+) -> Result<()> {
+    if !matches!(run_state, "COMPLETE" | "TARGET_FAILED") {
+        return Err(anyhow!("invalid completed bundle run state"));
+    }
+    let summary: serde_json::Value = serde_json::from_slice(
+        &fs::read(bundle.join("summary.json")).context("read completed summary")?,
+    )
+    .context("parse completed summary")?;
+    let measurement_validity = summary
+        .get("measurement_validity")
+        .and_then(serde_json::Value::as_str)
+        .context("completed summary missing measurement_validity")?;
+    let measurement_completeness = summary
+        .get("measurement_completeness")
+        .and_then(serde_json::Value::as_str)
+        .context("completed summary missing measurement_completeness")?;
+    if !matches!(measurement_validity, "VALID" | "DEGRADED" | "INVALID")
+        || !matches!(measurement_completeness, "COMPLETE" | "DECLARED_PARTIAL")
+    {
+        return Err(anyhow!("completed summary has invalid measurement state"));
+    }
+    let artifacts = platform_metadata
+        .iter()
+        .copied()
+        .chain([
+            "processes.ndjson",
+            "samples.ndjson",
+            "events.ndjson",
+            "summary.json",
+        ])
+        .map(|name| {
+            let path = bundle.join(name);
+            let size_bytes = path
+                .metadata()
+                .with_context(|| format!("completed bundle missing {name}"))?
+                .len();
+            Ok(serde_json::json!({"path": name, "size_bytes": size_bytes}))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let manifest = serde_json::json!({
+        "run_id": bundle.file_name().and_then(|name| name.to_str()).unwrap_or("unknown"),
+        "schema_draft_version": "perf-evidence-v2-draft",
+        "probe_version": env!("CARGO_PKG_VERSION"),
+        "probe_build_identity": concat!(env!("CARGO_PKG_NAME"), "-", env!("CARGO_PKG_VERSION")),
+        "run_state": run_state,
+        "artifact_list": artifacts,
+        "measurement_validity": measurement_validity,
+        "measurement_completeness": measurement_completeness,
+    });
+    fs::write(
+        bundle.join("manifest.json"),
+        serde_json::to_vec_pretty(&manifest).context("serialize completed manifest")?,
+    )
+    .context("write completed manifest")?;
+    Ok(())
 }
 
 fn writer_loop(bundle: PathBuf, receiver: Receiver<WriterMessage>) -> Result<()> {

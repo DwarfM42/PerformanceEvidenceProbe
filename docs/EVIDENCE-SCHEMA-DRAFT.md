@@ -23,9 +23,11 @@ beneath `--output` and writes:
 | `manifest.json` | Context metadata | Run ID, schema/version identity, run state, artifact sizes, and measurement validity. |
 
 The final JSON metadata is written only after the raw streams are finalized and
-the summary has been generated. If the collector is interrupted, the bundle may
-contain only raw NDJSON. That is intentionally not presented as a completed
-bundle.
+the summary has been generated. Platform runtimes write their own host, target,
+configuration, and capability documents; the common writer then builds the
+completed manifest from those documents plus the raw streams and summary. If the
+collector is interrupted, the bundle may contain only raw NDJSON. That is
+intentionally not presented as a completed bundle.
 
 ## V2 availability contract
 
@@ -40,10 +42,12 @@ fractional values, and out-of-range values for known unsigned numeric fields
 are invalid evidence, not absence. Derived witnesses and summary fields are not
 availability-event targets.
 
-The closed raw metric vocabulary is domain-qualified: `process.private_bytes`,
+The closed raw metric vocabulary is domain-qualified: `process.working_set_bytes`,
+`process.private_bytes`, `process.read_bytes`, `process.write_bytes`,
 `process.other_bytes`, `process.read_operations`, `process.write_operations`,
 `process.other_operations`, `process.thread_count`, `process.handle_count`,
-`probe.private_bytes`, `probe.thread_count`, `probe.handle_count`, and
+`probe.working_set_bytes`, `probe.private_bytes`, `probe.read_bytes`,
+`probe.write_bytes`, `probe.thread_count`, `probe.handle_count`, and
 `system.{system_user_cpu_time_ns,system_kernel_cpu_time_ns,system_idle_cpu_time_ns,available_physical_memory_bytes,commit_current_bytes,commit_limit_bytes,disk_free_bytes}`.
 
 `metric_unavailable` has closed `reason` values: `unsupported`,
@@ -52,21 +56,32 @@ The closed raw metric vocabulary is domain-qualified: `process.private_bytes`,
 or `PROCESS_SAMPLE`; PROCESS subjects require `process_local_id`, sample
 subjects require the zero-based ordinal of successfully recovered canonical
 `samples.ndjson` records, and PROCESS_SAMPLE requires both. Semantic reasons
-use RUN; operational reasons use the relevant process/sample scope. PROCESS
-authority requires a unique persisted process record with non-sentinel PID,
-start time, and boot identity; PID or a sample-local ID alone is insufficient.
+use only RUN and apply only to their exact metric for that bundle's run.
+Operational reasons use an exact SAMPLE or PROCESS_SAMPLE binding; a
+process-sample omission therefore always carries both the persisted process
+identity and sample ordinal. PROCESS authority requires a unique persisted
+process record with non-sentinel PID, start time, and boot identity; PID or a
+sample-local ID alone is insufficient.
 
 The normative required profile is scoped by V2 represented raw domains and
 runtime mode, not all conceivable enum members. Job accounting is required only
-when its domain is represented. For every in-scope optional leaf, a numeric
-value or one exact valid explanation is required. Stale, duplicate, conflicting,
+when its domain is represented. The conditionally absent canonical raw leaves
+are process/probe working set, private bytes, read bytes, write bytes, optional
+I/O-operation leaves, thread count, handle count, and the listed system leaves.
+Process/probe CPU counters remain required numeric raw observations. For every
+conditionally absent leaf, a numeric value or one exact valid explanation is
+required. A RUN declaration can explain the same exact leaf across samples, but
+cannot explain another metric or a value that is present (including `0`). If a
+RUN declaration and an exact operational declaration both match one omission,
+the two explanations are ambiguous and invalid. Stale, duplicate, conflicting,
 wrong-domain, wrong-subject, and no-op explanations are invalid.
 
 `process_set_working_set_sum_bytes` and `process_set_private_bytes_sum` are
 checked derived integrity witnesses. A complete contributor set requires an
-exact checked-arithmetic witness (including zero for an empty set). If a private
-contributor is validly unavailable, its private witness must be absent. No
-saturating arithmetic or independent witness availability event is allowed.
+exact checked-arithmetic witness (including zero for an empty set). If a working
+set or private contributor is validly unavailable, its corresponding witness
+must be absent. No saturating arithmetic or independent witness availability
+event is allowed.
 
 `measurement_validity` (`VALID`, `DEGRADED`, `INVALID`) is independent from
 `measurement_completeness` (`COMPLETE`, `DECLARED_PARTIAL`). Semantic absence
