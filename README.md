@@ -1,17 +1,18 @@
 # PerformanceEvidenceProbe
 
 [![Windows CI](https://github.com/DwarfM42/PerformanceEvidenceProbe/actions/workflows/windows-ci.yml/badge.svg?branch=main)](https://github.com/DwarfM42/PerformanceEvidenceProbe/actions/workflows/windows-ci.yml)
+[![Linux CI](https://github.com/DwarfM42/PerformanceEvidenceProbe/actions/workflows/linux-ci.yml/badge.svg?branch=main)](https://github.com/DwarfM42/PerformanceEvidenceProbe/actions/workflows/linux-ci.yml)
 [![macOS CI](https://github.com/DwarfM42/PerformanceEvidenceProbe/actions/workflows/macos-ci.yml/badge.svg?branch=main)](https://github.com/DwarfM42/PerformanceEvidenceProbe/actions/workflows/macos-ci.yml)
 
-**PerformanceEvidenceProbe is a runtime performance evidence collector with a full-accounting Windows collector and a deliberately narrower macOS collector. It preserves inspectable raw measurements for later analysis.**
+**PerformanceEvidenceProbe is a runtime performance evidence collector with a full-accounting Windows collector and deliberately narrower Linux and macOS collectors. It preserves inspectable raw measurements for later analysis.**
 
-Use it when you need a durable record of what a workload did while it ran. The Windows collector records sampled process memory, CPU and I/O counters, process identities, Windows Job accounting for launched workloads, lifecycle events, and a derived summary. macOS records only the narrower capabilities stated below. It is designed to preserve observations, not to decide what those observations mean.
+Use it when you need a durable record of what a workload did while it ran. The Windows collector records sampled process memory, CPU and I/O counters, process identities, Windows Job accounting for launched workloads, lifecycle events, and a derived summary. Linux and macOS record only the narrower capabilities stated below. It is designed to preserve observations, not to decide what those observations mean.
 
-**Current qualification:** Windows remains the qualified full-accounting collector. macOS has a bounded direct-root `run` and observation-only single-root `attach` collector. Deterministic macOS tests cover composite identity validation and loss/PID-reuse handling, raw-only attach-loss artifacts, per-sample target/probe metric-unavailable bindings, argv limits, and terminal encoding; host-runtime tests cover self-attach plus controlled direct-root zero, nonzero, and signal outcomes. Its new GitHub-hosted macOS CI workflow has not yet run. macOS does not claim Job accounting, containment, descendant/process-tree closure, complete process-set totals, canonical working/private memory, handles, Windows-shaped I/O, or canonical host/commit metrics. These surfaces are emitted as exact semantic omissions, never numeric zero.
+**Current qualification:** Windows x86_64 is the qualified full-accounting collector. Linux x86_64 and macOS arm64 have bounded direct-root `run` and observation-only single-root `attach` collectors. Linux and macOS do not claim Job accounting, containment, descendant/process-tree closure, complete process-set totals, canonical working/private memory, handles, Windows-shaped I/O, or canonical host/commit metrics. These surfaces are emitted as exact semantic omissions, never numeric zero. Linux direct-root signal outcomes and macOS direct-root signal outcomes are platform terminal metadata, never synthetic exit codes.
 
-GitHub Actions provides additional continuous verification on GitHub-hosted Windows runners. A green CI run verifies the repository's canonical checks there; it is not itself the Windows 10/11 x64 runtime qualification claim.
+GitHub Actions provides additional continuous verification on GitHub-hosted Windows, Linux, and macOS runners. A green CI run verifies the repository's canonical checks there; it is not itself a real-machine runtime qualification claim.
 
-Linux has its own bounded collector. macOS evidence is intentionally narrower than Windows evidence; M3 runtime evidence is host-specific and is not implied by hosted CI.
+Linux and macOS evidence are intentionally narrower than Windows evidence. Their real-machine runtime evidence is host- and architecture-specific and is not implied by hosted CI.
 
 That portability is intentional in the design. Platform-specific observation is kept separate from the Probe's evidence and interpretation boundaries: a collector observes the host and produces the raw process, sample, event, and context records; deterministic summarization operates on the persisted evidence; visualization and interpretation remain downstream. A Linux or macOS collector should therefore be able to add OS-specific observation without redefining what counts as Probe evidence. This is a design goal, not yet a cross-platform compatibility guarantee.
 
@@ -114,7 +115,7 @@ bash scripts/cargo-local.sh test --all-targets --locked -- --nocapture
 bash scripts/cargo-local.sh build --release --locked
 ```
 
-Windows CI runs the complete canonical test suite on every pull request and `main` push. The v0.1.0 preparation baseline enumerated 33 tests; see the [public-claim audit](docs/PUBLIC-CLAIM-AUDIT-2026-09-04.md) for that reconciled historical count. `scripts/cargo-local.sh` is the canonical repository-verification wrapper: it keeps `CARGO_HOME`, build artifacts, and temporary files in ignored directories beneath the checkout, so verification does not silently depend on or modify unrelated machine-global Cargo state. Cargo itself remains ordinary Rust tooling; the wrapper is a repository verification convention. The release executable is `target/release/perf-probe.exe`.
+Windows, Linux, and macOS CI run the complete canonical test suite on every pull request and `main` push; each also runs its platform-focused tests, checks all targets, builds `perf-probe` in release mode, and rejects whitespace errors. The v0.1.0 preparation baseline enumerated 33 tests; see the [public-claim audit](docs/PUBLIC-CLAIM-AUDIT-2026-09-04.md) for that reconciled historical count. `scripts/cargo-local.sh` is the canonical repository-verification wrapper: it keeps `CARGO_HOME`, build artifacts, and temporary files in ignored directories beneath the checkout, so verification does not silently depend on or modify unrelated machine-global Cargo state. Cargo itself remains ordinary Rust tooling; the wrapper is a repository verification convention. The release executable is `target/release/perf-probe` (`perf-probe.exe` on Windows).
 
 ## Documentation
 

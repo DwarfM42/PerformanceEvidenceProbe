@@ -2,7 +2,7 @@
 name = "perf-evidence-probe"
 version = "0.2.0"
 edition = "2024"
-description = "Windows-first raw performance evidence collector"
+description = "Cross-platform raw performance evidence collector"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/DwarfM42/PerformanceEvidenceProbe"
 readme = "README.md"
