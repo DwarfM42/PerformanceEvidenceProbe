@@ -16,6 +16,7 @@ fake_bin="$temp_root/fake-bin"
 capture_dir="$temp_root/capture"
 mkdir -p "$wrapper_dir" "$fake_bin"
 cp "$wrapper_source" "$wrapper_dir/cargo-local.sh"
+wrapper_repo_physical="$(cd -- "$wrapper_repo" && pwd -P)"
 
 cat > "$fake_bin/cargo" <<'EOF'
 #!/usr/bin/env bash
@@ -51,9 +52,9 @@ assert_file_equals() {
 
 expected_repository_path() {
     if [[ -n "${MSYSTEM:-}" || "${OSTYPE:-}" == cygwin* ]]; then
-        cygpath -aw "$wrapper_repo"
+        cygpath -aw "$wrapper_repo_physical"
     else
-        printf '%s' "$wrapper_repo"
+        printf '%s' "$wrapper_repo_physical"
     fi
 }
 
