@@ -1,4 +1,4 @@
-name: Windows CI
+name: macOS CI
 
 on:
   pull_request:
@@ -10,13 +10,9 @@ permissions:
   contents: read
 
 jobs:
-  windows-ci:
-    name: windows-ci
-    runs-on: windows-latest
-    # These tests launch and observe real Windows process trees. Keep each
-    # integration-test process set isolated instead of competing in parallel.
-    env:
-      RUST_TEST_THREADS: "1"
+  macos-ci:
+    name: macos-ci
+    runs-on: macos-latest
     defaults:
       run:
         shell: bash
@@ -30,5 +26,7 @@ jobs:
         run: bash scripts/cargo-local.sh fmt --check
       - name: Run canonical test suite
         run: bash scripts/cargo-local.sh test --all-targets --locked -- --nocapture
+      - name: Run macOS runtime tests
+        run: bash scripts/cargo-local.sh test --test macos_identity_contract --test macos_runtime_evidence --locked -- --nocapture
       - name: Build release binaries
         run: bash scripts/cargo-local.sh build --release --locked

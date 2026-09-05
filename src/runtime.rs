@@ -1,10 +1,9 @@
-//! Runtime command boundary. Native Windows collection is deliberately isolated
-//! behind this module so non-Windows binaries cannot pretend to collect data.
+//! Runtime command boundary. Native collection remains isolated by platform.
 
 use std::path::Path;
 
 use anyhow::Result;
-#[cfg(all(not(windows), not(target_os = "linux")))]
+#[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
 use anyhow::bail;
 
 #[cfg(windows)]
@@ -13,6 +12,10 @@ mod windows;
 #[cfg(target_os = "linux")]
 #[allow(dead_code)]
 pub mod linux;
+
+#[cfg(target_os = "macos")]
+#[allow(dead_code)]
+pub mod macos;
 
 pub fn run(
     output_root: &Path,
@@ -27,10 +30,14 @@ pub fn run(
     {
         return linux::run(output_root, max_retained_process_handles, command);
     }
-    #[cfg(all(not(windows), not(target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        return macos::run(output_root, max_retained_process_handles, command);
+    }
+    #[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
     {
         let _ = (output_root, max_retained_process_handles, command);
-        bail!("perf-probe run requires Windows")
+        bail!("perf-probe run requires Windows, Linux, or macOS")
     }
 }
 
@@ -43,9 +50,13 @@ pub fn attach(output_root: &Path, pid: u32, attach_job: bool) -> Result<()> {
     {
         return linux::attach(output_root, pid, attach_job);
     }
-    #[cfg(all(not(windows), not(target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        return macos::attach(output_root, pid, attach_job);
+    }
+    #[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
     {
         let _ = (output_root, pid, attach_job);
-        bail!("perf-probe attach requires Windows")
+        bail!("perf-probe attach requires Windows, Linux, or macOS")
     }
 }
