@@ -81,6 +81,16 @@ const METRICS: &[Metric] = &[
         field: "private_bytes",
     },
     Metric {
+        name: "process.user_cpu_time_ns",
+        domain: Domain::Process,
+        field: "user_cpu_time_ns",
+    },
+    Metric {
+        name: "process.kernel_cpu_time_ns",
+        domain: Domain::Process,
+        field: "kernel_cpu_time_ns",
+    },
+    Metric {
         name: "process.read_bytes",
         domain: Domain::Process,
         field: "read_bytes",
@@ -129,6 +139,16 @@ const METRICS: &[Metric] = &[
         name: "probe.private_bytes",
         domain: Domain::Probe,
         field: "private_bytes",
+    },
+    Metric {
+        name: "probe.user_cpu_time_ns",
+        domain: Domain::Probe,
+        field: "user_cpu_time_ns",
+    },
+    Metric {
+        name: "probe.kernel_cpu_time_ns",
+        domain: Domain::Probe,
+        field: "kernel_cpu_time_ns",
     },
     Metric {
         name: "probe.read_bytes",
@@ -272,19 +292,19 @@ pub fn regenerate_summary(bundle: &Path) -> Result<()> {
                         .map(|row| {
                             Ok((
                                 row,
-                                optional_u64(row, metric.field)?,
+                                optional_metric_u64(row, metric)?,
                                 Some(required_u64(row, "process_local_id")?),
                             ))
                         })
                         .collect::<Result<_>>()?,
                     Domain::Probe => vec![(
                         sample.get("probe").context("sample missing probe")?,
-                        optional_u64(sample.get("probe").unwrap(), metric.field)?,
+                        optional_metric_u64(sample.get("probe").unwrap(), metric)?,
                         None,
                     )],
                     Domain::System => vec![(
                         sample.get("system").context("sample missing system")?,
-                        optional_u64(sample.get("system").unwrap(), metric.field)?,
+                        optional_metric_u64(sample.get("system").unwrap(), metric)?,
                         None,
                     )],
                 };
@@ -358,7 +378,7 @@ pub fn regenerate_summary(bundle: &Path) -> Result<()> {
         }
         let handles = sample
             .get("probe")
-            .map(|p| optional_u64(p, "handle_count"))
+            .map(|p| optional_u32_as_u64(p, "handle_count"))
             .transpose()?
             .flatten();
         maximum_probe_handle_count = match (maximum_probe_handle_count, handles) {
@@ -469,23 +489,29 @@ pub fn regenerate_summary(bundle: &Path) -> Result<()> {
         maximum_probe_handle_count,
         handle_retention_degraded,
         exit_code: terminal
-            .and_then(|e| optional_u64(e, "exit_code").ok().flatten())
-            .and_then(|n| u32::try_from(n).ok()),
+            .map(|event| optional_u32(event, "exit_code"))
+            .transpose()?
+            .flatten(),
         terminal_user_cpu_time_ns: terminal
-            .and_then(|e| optional_u64(e, "terminal_user_cpu_time_ns").ok().flatten()),
-        terminal_kernel_cpu_time_ns: terminal.and_then(|e| {
-            optional_u64(e, "terminal_kernel_cpu_time_ns")
-                .ok()
-                .flatten()
-        }),
+            .map(|event| optional_u64(event, "terminal_user_cpu_time_ns"))
+            .transpose()?
+            .flatten(),
+        terminal_kernel_cpu_time_ns: terminal
+            .map(|event| optional_u64(event, "terminal_kernel_cpu_time_ns"))
+            .transpose()?
+            .flatten(),
         terminal_read_bytes: terminal
-            .and_then(|e| optional_u64(e, "terminal_read_bytes").ok().flatten()),
+            .map(|event| optional_u64(event, "terminal_read_bytes"))
+            .transpose()?
+            .flatten(),
         terminal_write_bytes: terminal
-            .and_then(|e| optional_u64(e, "terminal_write_bytes").ok().flatten()),
+            .map(|event| optional_u64(event, "terminal_write_bytes"))
+            .transpose()?
+            .flatten(),
         terminal_counter_fidelity: terminal
-            .and_then(|e| e.get("terminal_counter_fidelity"))
-            .and_then(Value::as_str)
-            .map(str::to_owned),
+            .map(|event| optional_string(event, "terminal_counter_fidelity"))
+            .transpose()?
+            .flatten(),
         measurement_validity: validity,
         measurement_completeness: completeness,
     };
@@ -635,9 +661,9 @@ fn process_authority(records: &[Value]) -> Result<HashMap<u64, bool>> {
     let mut authority = HashMap::new();
     for record in records {
         let id = required_u64(record, "process_local_id")?;
-        let valid = required_u64(record, "pid").unwrap_or(0) != 0
-            && required_u64(record, "process_start_time").unwrap_or(0) != 0
-            && required_str(record, "boot_identity").is_ok_and(|boot| !boot.is_empty());
+        let valid = required_u32(record, "pid")? != 0
+            && required_u64(record, "process_start_time")? != 0
+            && !required_str(record, "boot_identity")?.is_empty();
         authority
             .entry(id)
             .and_modify(|known| *known = false)
@@ -698,17 +724,17 @@ fn validate_present_optional_metrics(sample: &Value, rows: &[Value]) -> Result<(
         match metric.domain {
             Domain::Process => {
                 for row in rows {
-                    optional_u64(row, metric.field)?;
+                    optional_metric_u64(row, metric)?;
                 }
             }
             Domain::Probe => {
                 if let Some(p) = sample.get("probe") {
-                    optional_u64(p, metric.field)?;
+                    optional_metric_u64(p, metric)?;
                 }
             }
             Domain::System => {
                 if let Some(s) = sample.get("system") {
-                    optional_u64(s, metric.field)?;
+                    optional_metric_u64(s, metric)?;
                 }
             }
         }
@@ -741,6 +767,42 @@ fn required_u64(value: &Value, key: &str) -> Result<u64> {
 }
 fn optional_u64(value: &Value, key: &str) -> Result<Option<u64>> {
     value.get(key).map(strict_u64).transpose()
+}
+fn optional_metric_u64(value: &Value, metric: &Metric) -> Result<Option<u64>> {
+    if matches!(metric.field, "thread_count" | "handle_count") {
+        return optional_u32_as_u64(value, metric.field);
+    }
+    optional_u64(value, metric.field)
+}
+fn optional_u32_as_u64(value: &Value, key: &str) -> Result<Option<u64>> {
+    value
+        .get(key)
+        .map(strict_u32)
+        .transpose()
+        .map(|value| value.map(u64::from))
+}
+fn optional_u32(value: &Value, key: &str) -> Result<Option<u32>> {
+    value.get(key).map(strict_u32).transpose()
+}
+fn strict_u32(value: &Value) -> Result<u32> {
+    u32::try_from(strict_u64(value)?).context("numeric field exceeds u32 range")
+}
+fn required_u32(value: &Value, key: &str) -> Result<u32> {
+    value
+        .get(key)
+        .context(format!("missing required unsigned 32-bit field {key}"))
+        .and_then(strict_u32)
+}
+fn optional_string(value: &Value, key: &str) -> Result<Option<String>> {
+    value
+        .get(key)
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::to_owned)
+                .context(format!("field {key} must be a string when present"))
+        })
+        .transpose()
 }
 /// This historic timing field is independently nullable; it is not an optional
 /// canonical raw metric and therefore does not use V2 availability semantics.
