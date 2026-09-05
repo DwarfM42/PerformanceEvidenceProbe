@@ -4,12 +4,14 @@
 
 use std::{
     env,
-    fs::File,
+    fs::{self, File},
     io::{Read, Write},
     process::Command,
     thread,
     time::{Duration, Instant},
 };
+#[cfg(target_os = "linux")]
+use std::{io, os::unix::process::CommandExt};
 
 fn main() {
     let mut args = env::args().skip(1);
@@ -96,8 +98,135 @@ fn main() {
             // post-child-exit Job accounting has a deterministic observation window.
             thread::sleep(Duration::from_millis(2_200));
         }
+        #[cfg(target_os = "linux")]
+        "linux-ordinary-child" => linux_ordinary_child(&args.next().expect("child report path")),
+        #[cfg(target_os = "linux")]
+        "linux-grandchild" => linux_grandchild(&args.next().expect("child report path")),
+        #[cfg(target_os = "linux")]
+        "linux-grandchild-parent" => {
+            linux_grandchild_parent(&args.next().expect("child report path"))
+        }
+        #[cfg(target_os = "linux")]
+        "linux-child-exits-first" => {
+            linux_child_exits_first(&args.next().expect("child report path"))
+        }
+        #[cfg(target_os = "linux")]
+        "linux-root-exits-child-alive" => {
+            linux_root_exits_child_alive(&args.next().expect("child report path"))
+        }
+        #[cfg(target_os = "linux")]
+        "linux-child-new-session" => {
+            linux_child_new_session(&args.next().expect("child report path"))
+        }
+        #[cfg(target_os = "linux")]
+        "linux-hold-brief" => thread::sleep(Duration::from_millis(250)),
+        #[cfg(target_os = "linux")]
+        "linux-hold-long" => thread::sleep(Duration::from_secs(10)),
+        #[cfg(target_os = "linux")]
+        "linux-exit" => {}
+        #[cfg(target_os = "linux")]
+        "linux-session-child" => linux_session_child(&args.next().expect("child report path")),
         _ => panic!("unknown synthetic workload mode: {mode}"),
     }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_child(mode: &str, report: &str) -> Command {
+    let mut command = Command::new(env::current_exe().expect("current workload executable"));
+    command.args([mode, report]);
+    command
+}
+
+#[cfg(target_os = "linux")]
+fn report_pid(report: &str, pid: u32) {
+    fs::write(report, format!("{pid}\n")).expect("write fixture child PID");
+}
+
+#[cfg(target_os = "linux")]
+fn linux_ordinary_child(report: &str) {
+    let mut child = linux_child("linux-hold-brief", report)
+        .spawn()
+        .expect("launch ordinary Linux child");
+    report_pid(report, child.id());
+    assert!(child.wait().expect("wait ordinary Linux child").success());
+}
+
+#[cfg(target_os = "linux")]
+fn linux_grandchild(report: &str) {
+    let status = linux_child("linux-grandchild-parent", report)
+        .status()
+        .expect("launch Linux grandchild parent");
+    assert!(status.success(), "Linux grandchild parent status: {status}");
+}
+
+#[cfg(target_os = "linux")]
+fn linux_grandchild_parent(report: &str) {
+    let mut grandchild = linux_child("linux-hold-brief", report)
+        .spawn()
+        .expect("launch Linux grandchild");
+    fs::write(
+        report,
+        format!("{}\n{}\n", std::process::id(), grandchild.id()),
+    )
+    .expect("write fixture descendant PIDs");
+    assert!(grandchild.wait().expect("wait Linux grandchild").success());
+}
+
+#[cfg(target_os = "linux")]
+fn linux_child_exits_first(report: &str) {
+    let mut child = linux_child("linux-exit", report)
+        .spawn()
+        .expect("launch exiting Linux child");
+    report_pid(report, child.id());
+    assert!(child.wait().expect("wait exiting Linux child").success());
+    thread::sleep(Duration::from_millis(250));
+}
+
+#[cfg(target_os = "linux")]
+fn linux_root_exits_child_alive(report: &str) {
+    let child = linux_child("linux-hold-long", report)
+        .spawn()
+        .expect("launch surviving Linux child");
+    report_pid(report, child.id());
+    thread::sleep(Duration::from_millis(250));
+}
+
+#[cfg(target_os = "linux")]
+fn linux_child_new_session(report: &str) {
+    let mut command = linux_child("linux-session-child", report);
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() == -1 {
+                Err(io::Error::last_os_error())
+            } else {
+                Ok(())
+            }
+        });
+    }
+    let mut child = command.spawn().expect("launch new-session Linux child");
+    assert!(
+        child
+            .wait()
+            .expect("wait new-session Linux child")
+            .success()
+    );
+}
+
+#[cfg(target_os = "linux")]
+fn linux_session_child(report: &str) {
+    unsafe {
+        fs::write(
+            report,
+            format!(
+                "{} {} {}\n",
+                libc::getpid(),
+                libc::getpgrp(),
+                libc::getsid(0)
+            ),
+        )
+        .expect("write new-session Linux child identity");
+    }
+    thread::sleep(Duration::from_millis(250));
 }
 
 /// W1: touch each allocation so Windows must reflect the sustained committed
