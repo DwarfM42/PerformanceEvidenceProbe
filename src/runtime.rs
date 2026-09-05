@@ -10,6 +10,10 @@ use anyhow::bail;
 #[cfg(windows)]
 mod windows;
 
+#[cfg(target_os = "linux")]
+#[allow(dead_code)]
+pub mod linux;
+
 pub fn run(
     output_root: &Path,
     max_retained_process_handles: usize,
@@ -31,7 +35,11 @@ pub fn attach(output_root: &Path, pid: u32, attach_job: bool) -> Result<()> {
     {
         return windows::attach(output_root, pid, attach_job);
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        return linux::attach(output_root, pid, attach_job);
+    }
+    #[cfg(all(not(windows), not(target_os = "linux")))]
     {
         let _ = (output_root, pid, attach_job);
         bail!("perf-probe attach requires Windows")
