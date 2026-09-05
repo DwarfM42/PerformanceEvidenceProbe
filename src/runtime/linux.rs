@@ -202,7 +202,7 @@ where
             UnavailableReason::SemanticMismatch,
         ))?;
     }
-    if target.is_err() {
+    if let Err(error) = &target {
         for metric in [
             Metric::ProcessUserCpuTimeNs,
             Metric::ProcessKernelCpuTimeNs,
@@ -212,20 +212,20 @@ where
                 EvidenceEvent::metric_unavailable(
                     metric,
                     SubjectKind::ProcessSample,
-                    UnavailableReason::SamplingDegraded,
+                    operational_unavailable_reason(error),
                 )
                 .with_u64("process_local_id", PROCESS_LOCAL_ID)
                 .with_u64("sample_ordinal", 0),
             )?;
         }
     }
-    if probe.is_err() {
+    if let Err(error) = &probe {
         for metric in [Metric::ProbeUserCpuTimeNs, Metric::ProbeKernelCpuTimeNs] {
             writer.event(
                 EvidenceEvent::metric_unavailable(
                     metric,
                     SubjectKind::Sample,
-                    UnavailableReason::SamplingDegraded,
+                    operational_unavailable_reason(error),
                 )
                 .with_u64("sample_ordinal", 0),
             )?;
@@ -341,6 +341,17 @@ fn read_stat_for_identity(identity: &ProcessIdentity) -> Result<StatSample> {
     Ok(sample)
 }
 
+fn operational_unavailable_reason(error: &anyhow::Error) -> UnavailableReason {
+    if error
+        .downcast_ref::<io::Error>()
+        .is_some_and(|source| source.kind() == io::ErrorKind::PermissionDenied)
+    {
+        UnavailableReason::AuthorityUnavailable
+    } else {
+        UnavailableReason::SamplingDegraded
+    }
+}
+
 fn read_limited(path: &str) -> io::Result<String> {
     let mut bytes = Vec::with_capacity(MAX_PROC_BYTES as usize + 1);
     std::fs::File::open(path)?
@@ -441,6 +452,79 @@ mod tests {
         assert_eq!(events.matches("sampling_degraded").count(), 3);
         assert!(events.matches("\"process_local_id\":1").count() >= 3);
         assert!(events.matches("\"sample_ordinal\":0").count() >= 3);
+        assert!(sample["probe"]["user_cpu_time_ns"].is_number());
+        assert!(sample["probe"]["kernel_cpu_time_ns"].is_number());
+        assert!(!events.contains("probe.user_cpu_time_ns"));
+        assert!(!events.contains("probe.kernel_cpu_time_ns"));
+        let summary: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(bundle.join("summary.json")).unwrap()).unwrap();
+        assert_eq!(summary["measurement_validity"], "DEGRADED");
+    }
+
+    #[test]
+    fn target_stat_access_loss_is_exactly_authority_unavailable() {
+        let output = tempfile::tempdir().unwrap();
+        let pid = std::process::id();
+        let mut target_calls = 0_u8;
+        attach_with_observation(
+            output.path(),
+            pid,
+            false,
+            |identity| {
+                if identity.pid == pid && target_calls == 0 {
+                    target_calls += 1;
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "deterministic target stat access loss",
+                    )
+                    .into());
+                }
+                read_stat_for_identity(identity)
+            },
+            read_identity,
+        )
+        .unwrap();
+
+        let bundle = std::fs::read_dir(output.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let sample: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(bundle.join("samples.ndjson")).unwrap())
+                .unwrap();
+        let row = &sample["processes"][0];
+        for field in ["thread_count", "user_cpu_time_ns", "kernel_cpu_time_ns"] {
+            assert!(row.get(field).is_none(), "{field} must be absent");
+        }
+        assert!(sample["probe"]["user_cpu_time_ns"].is_number());
+        assert!(sample["probe"]["kernel_cpu_time_ns"].is_number());
+
+        let events = std::fs::read_to_string(bundle.join("events.ndjson")).unwrap();
+        let unavailable = events
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter(|event| event["record_type"] == "metric_unavailable")
+            .filter(|event| event["subject_kind"] == "PROCESS_SAMPLE")
+            .collect::<Vec<_>>();
+        assert_eq!(unavailable.len(), 3);
+        for event in unavailable {
+            assert_eq!(event["reason"], "authority_unavailable");
+            assert_eq!(event["process_local_id"], PROCESS_LOCAL_ID);
+            assert_eq!(event["sample_ordinal"], 0);
+            assert!(matches!(
+                event["metric"].as_str(),
+                Some(
+                    "process.thread_count"
+                        | "process.user_cpu_time_ns"
+                        | "process.kernel_cpu_time_ns"
+                )
+            ));
+        }
+        assert!(!events.contains("sampling_degraded"));
+        assert!(!events.contains("probe.user_cpu_time_ns"));
+        assert!(!events.contains("probe.kernel_cpu_time_ns"));
         let summary: serde_json::Value =
             serde_json::from_slice(&std::fs::read(bundle.join("summary.json")).unwrap()).unwrap();
         assert_eq!(summary["measurement_validity"], "DEGRADED");
