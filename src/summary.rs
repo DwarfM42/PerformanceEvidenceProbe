@@ -18,7 +18,8 @@ struct Summary {
     elapsed_ns: u64,
     sample_count: u64,
     max_sample_gap_exact_ns: u64,
-    peak_working_set_sampled_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    peak_working_set_sampled_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     peak_private_sampled_bytes: Option<u64>,
     last_live_working_set_sample_bytes: Option<u64>,
@@ -70,9 +71,24 @@ struct Metric {
 }
 const METRICS: &[Metric] = &[
     Metric {
+        name: "process.working_set_bytes",
+        domain: Domain::Process,
+        field: "working_set_bytes",
+    },
+    Metric {
         name: "process.private_bytes",
         domain: Domain::Process,
         field: "private_bytes",
+    },
+    Metric {
+        name: "process.read_bytes",
+        domain: Domain::Process,
+        field: "read_bytes",
+    },
+    Metric {
+        name: "process.write_bytes",
+        domain: Domain::Process,
+        field: "write_bytes",
     },
     Metric {
         name: "process.other_bytes",
@@ -105,9 +121,24 @@ const METRICS: &[Metric] = &[
         field: "handle_count",
     },
     Metric {
+        name: "probe.working_set_bytes",
+        domain: Domain::Probe,
+        field: "working_set_bytes",
+    },
+    Metric {
         name: "probe.private_bytes",
         domain: Domain::Probe,
         field: "private_bytes",
+    },
+    Metric {
+        name: "probe.read_bytes",
+        domain: Domain::Probe,
+        field: "read_bytes",
+    },
+    Metric {
+        name: "probe.write_bytes",
+        domain: Domain::Probe,
+        field: "write_bytes",
     },
     Metric {
         name: "probe.thread_count",
@@ -196,7 +227,7 @@ pub fn regenerate_summary(bundle: &Path) -> Result<()> {
     let mut first_monotonic = None;
     let mut last_monotonic = 0;
     let mut max_gap = 0_u64;
-    let mut peak_working_set = 0_u64;
+    let mut peak_working_set = Some(0_u64);
     let mut peak_private = Some(0_u64);
     let mut maximum_observed_process_count = 0_u64;
     let mut maximum_probe_handle_count = Some(0_u64);
@@ -289,17 +320,16 @@ pub fn regenerate_summary(bundle: &Path) -> Result<()> {
             validate_present_optional_metrics(sample, rows)?;
         }
 
-        let working_set_sum = sum_required(rows, "working_set_bytes")?;
+        let working_set_sum = sum_optional(rows, "working_set_bytes")?;
         let private_sum = sum_optional(rows, "private_bytes")?;
         if v2 {
-            witness(
-                sample,
-                "process_set_working_set_sum_bytes",
-                Some(working_set_sum),
-            )?;
+            witness(sample, "process_set_working_set_sum_bytes", working_set_sum)?;
             witness(sample, "process_set_private_bytes_sum", private_sum)?;
         }
-        peak_working_set = peak_working_set.max(working_set_sum);
+        peak_working_set = match (peak_working_set, working_set_sum) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            _ => None,
+        };
         peak_private = match (peak_private, private_sum) {
             (Some(a), Some(b)) => Some(a.max(b)),
             _ => None,
@@ -309,14 +339,21 @@ pub fn regenerate_summary(bundle: &Path) -> Result<()> {
             .and_then(Value::as_bool)
             == Some(true)
         {
-            last_live_working_set = Some(working_set_sum);
-            last_live_private = private_sum;
-            last_live_time = sample
+            let live_time = sample
                 .get("wall_time_utc")
                 .and_then(Value::as_str)
                 .map(str::to_owned);
+            last_live_working_set = None;
+            last_live_time = None;
+            last_live_private = None;
+            last_live_private_time = None;
+            if working_set_sum.is_some() {
+                last_live_working_set = working_set_sum;
+                last_live_time = live_time.clone();
+            }
             if private_sum.is_some() {
-                last_live_private_time = last_live_time.clone();
+                last_live_private = private_sum;
+                last_live_private_time = live_time;
             }
         }
         let handles = sample
@@ -519,10 +556,8 @@ fn parse_unavailable<'a>(
         {
             bail!("semantic unavailable reason requires RUN");
         }
-        if reason == "authority_unavailable"
-            && !matches!(subject, "PROCESS" | "PROCESS_SAMPLE" | "SAMPLE")
-        {
-            bail!("authority_unavailable requires operational subject");
+        if reason == "authority_unavailable" && !matches!(subject, "PROCESS_SAMPLE" | "SAMPLE") {
+            bail!("authority_unavailable requires exact operational sample subject");
         }
         if reason == "sampling_degraded" && !matches!(subject, "PROCESS_SAMPLE" | "SAMPLE") {
             bail!("sampling_degraded requires sample subject");
@@ -686,11 +721,6 @@ fn witness(sample: &Value, field: &str, expected: Option<u64>) -> Result<()> {
         (None, None) => Ok(()),
         _ => bail!("derived witness {field} is missing, malformed, or inconsistent"),
     }
-}
-fn sum_required(rows: &[Value], field: &str) -> Result<u64> {
-    rows.iter().try_fold(0, |sum, row| {
-        checked_add(sum, required_u64(row, field)?, field)
-    })
 }
 fn sum_optional(rows: &[Value], field: &str) -> Result<Option<u64>> {
     rows.iter()

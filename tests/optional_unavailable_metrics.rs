@@ -24,8 +24,22 @@ fn event(metric: &str, subject: &str, reason: &str) -> Value {
     json!({"record_type":"metric_unavailable","metric":metric,"subject_kind":subject,"reason":reason,"process_local_id":1,"sample_ordinal":0})
 }
 fn bundle(sample: Value, processes: Vec<Value>, events: Vec<Value>) -> tempfile::TempDir {
+    bundle_records(vec![sample], processes, events)
+}
+fn bundle_records(
+    samples: Vec<Value>,
+    processes: Vec<Value>,
+    events: Vec<Value>,
+) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
-    fs::write(dir.path().join("samples.ndjson"), format!("{}\n", sample)).unwrap();
+    fs::write(
+        dir.path().join("samples.ndjson"),
+        samples
+            .into_iter()
+            .map(|value| format!("{value}\n"))
+            .collect::<String>(),
+    )
+    .unwrap();
     if !processes.is_empty() {
         fs::write(
             dir.path().join("processes.ndjson"),
@@ -105,6 +119,171 @@ fn semantic_run_omission_is_valid_declared_partial() {
             json!({"record_type":"metric_unavailable","metric":"system.disk_free_bytes","subject_kind":"RUN","reason":"semantic_mismatch"}),
         ],
     ));
+    assert_eq!(result["measurement_validity"], "VALID");
+    assert_eq!(result["measurement_completeness"], "DECLARED_PARTIAL");
+}
+
+#[test]
+fn unsupported_and_not_applicable_are_valid_only_as_exact_run_declarations() {
+    for reason in ["unsupported", "not_applicable"] {
+        let mut record = sample();
+        record["system"]
+            .as_object_mut()
+            .unwrap()
+            .remove("disk_free_bytes");
+        let declaration = json!({
+            "record_type":"metric_unavailable",
+            "metric":"system.disk_free_bytes",
+            "subject_kind":"RUN",
+            "reason":reason
+        });
+        let result = summary(&bundle(record, vec![process()], vec![declaration]));
+        assert_eq!(result["measurement_validity"], "VALID");
+        assert_eq!(result["measurement_completeness"], "DECLARED_PARTIAL");
+    }
+}
+
+#[test]
+fn run_semantic_declarations_explain_exact_raw_process_leaves_across_samples() {
+    let mut first = sample();
+    let mut second = sample();
+    second["monotonic_ns"] = json!(500_000_000_u64);
+    second["scheduled_monotonic_ns"] = json!(500_000_000_u64);
+    second["gap_from_previous_sample_ns"] = json!(500_000_000_u64);
+    for record in [&mut first, &mut second] {
+        let process_row = record["processes"][0].as_object_mut().unwrap();
+        for field in [
+            "working_set_bytes",
+            "private_bytes",
+            "read_bytes",
+            "write_bytes",
+        ] {
+            process_row.remove(field);
+        }
+        let record = record.as_object_mut().unwrap();
+        record.remove("process_set_working_set_sum_bytes");
+        record.remove("process_set_private_bytes_sum");
+    }
+    let events = vec![
+        json!({"record_type":"metric_unavailable","metric":"process.working_set_bytes","subject_kind":"RUN","reason":"semantic_mismatch"}),
+        json!({"record_type":"metric_unavailable","metric":"process.private_bytes","subject_kind":"RUN","reason":"semantic_mismatch"}),
+        json!({"record_type":"metric_unavailable","metric":"process.read_bytes","subject_kind":"RUN","reason":"semantic_mismatch"}),
+        json!({"record_type":"metric_unavailable","metric":"process.write_bytes","subject_kind":"RUN","reason":"semantic_mismatch"}),
+    ];
+    let result = summary(&bundle_records(
+        vec![first, second],
+        vec![process()],
+        events,
+    ));
+    assert_eq!(result["measurement_validity"], "VALID");
+    assert_eq!(result["measurement_completeness"], "DECLARED_PARTIAL");
+    assert!(result.get("peak_working_set_sampled_bytes").is_none());
+}
+
+#[test]
+fn operational_process_omission_requires_exact_process_sample_binding() {
+    let mut record = sample();
+    record["processes"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("private_bytes");
+    record
+        .as_object_mut()
+        .unwrap()
+        .remove("process_set_private_bytes_sum");
+    let broad = json!({
+        "record_type":"metric_unavailable",
+        "metric":"process.private_bytes",
+        "subject_kind":"PROCESS",
+        "reason":"authority_unavailable",
+        "process_local_id":1
+    });
+    assert!(regenerate_summary(bundle(record, vec![process()], vec![broad]).path()).is_err());
+}
+
+#[test]
+fn run_declaration_for_one_metric_does_not_explain_another_missing_leaf() {
+    let mut record = sample();
+    record["processes"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("read_bytes");
+    let unrelated = json!({
+        "record_type":"metric_unavailable",
+        "metric":"process.private_bytes",
+        "subject_kind":"RUN",
+        "reason":"semantic_mismatch"
+    });
+    assert!(regenerate_summary(bundle(record, vec![process()], vec![unrelated]).path()).is_err());
+}
+
+#[test]
+fn run_semantic_and_operational_declarations_for_one_omission_are_ambiguous() {
+    let mut record = sample();
+    record["processes"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("private_bytes");
+    record
+        .as_object_mut()
+        .unwrap()
+        .remove("process_set_private_bytes_sum");
+    let run = json!({"record_type":"metric_unavailable","metric":"process.private_bytes","subject_kind":"RUN","reason":"semantic_mismatch"});
+    let operational = event(
+        "process.private_bytes",
+        "PROCESS_SAMPLE",
+        "sampling_degraded",
+    );
+    assert!(
+        regenerate_summary(bundle(record, vec![process()], vec![run, operational]).path()).is_err()
+    );
+}
+
+#[test]
+fn present_zero_conflicts_with_run_unavailable_declaration() {
+    let run = json!({"record_type":"metric_unavailable","metric":"process.read_bytes","subject_kind":"RUN","reason":"semantic_mismatch"});
+    assert!(regenerate_summary(bundle(sample(), vec![process()], vec![run]).path()).is_err());
+}
+
+#[test]
+fn linux_contract_fixture_is_valid_partial_without_linux_runtime_collection() {
+    let mut record = sample();
+    let process_row = record["processes"][0].as_object_mut().unwrap();
+    for field in [
+        "working_set_bytes",
+        "private_bytes",
+        "read_bytes",
+        "write_bytes",
+        "handle_count",
+    ] {
+        process_row.remove(field);
+    }
+    let probe = record["probe"].as_object_mut().unwrap();
+    for field in [
+        "working_set_bytes",
+        "private_bytes",
+        "read_bytes",
+        "write_bytes",
+        "handle_count",
+    ] {
+        probe.remove(field);
+    }
+    let sample = record.as_object_mut().unwrap();
+    sample.remove("process_set_working_set_sum_bytes");
+    sample.remove("process_set_private_bytes_sum");
+    let events = vec![
+        json!({"record_type":"metric_unavailable","metric":"process.working_set_bytes","subject_kind":"RUN","reason":"semantic_mismatch"}),
+        json!({"record_type":"metric_unavailable","metric":"process.private_bytes","subject_kind":"RUN","reason":"semantic_mismatch"}),
+        json!({"record_type":"metric_unavailable","metric":"process.read_bytes","subject_kind":"RUN","reason":"semantic_mismatch"}),
+        json!({"record_type":"metric_unavailable","metric":"process.write_bytes","subject_kind":"RUN","reason":"semantic_mismatch"}),
+        json!({"record_type":"metric_unavailable","metric":"process.handle_count","subject_kind":"RUN","reason":"semantic_mismatch"}),
+        json!({"record_type":"metric_unavailable","metric":"probe.working_set_bytes","subject_kind":"RUN","reason":"semantic_mismatch"}),
+        json!({"record_type":"metric_unavailable","metric":"probe.private_bytes","subject_kind":"RUN","reason":"semantic_mismatch"}),
+        json!({"record_type":"metric_unavailable","metric":"probe.read_bytes","subject_kind":"RUN","reason":"semantic_mismatch"}),
+        json!({"record_type":"metric_unavailable","metric":"probe.write_bytes","subject_kind":"RUN","reason":"semantic_mismatch"}),
+        json!({"record_type":"metric_unavailable","metric":"probe.handle_count","subject_kind":"RUN","reason":"semantic_mismatch"}),
+    ];
+    let result = summary(&bundle(record, vec![process()], events));
     assert_eq!(result["measurement_validity"], "VALID");
     assert_eq!(result["measurement_completeness"], "DECLARED_PARTIAL");
 }
@@ -226,12 +405,12 @@ fn omitted_system_metrics_do_not_serialize_as_zero() {
 fn present_windows_shaped_metrics_serialize_as_numbers() {
     let value = serde_json::to_value(ProcessSample {
         process_local_id: 1,
-        working_set_bytes: 0,
+        working_set_bytes: Some(0),
         private_bytes: Some(0),
         user_cpu_time_ns: 0,
         kernel_cpu_time_ns: 0,
-        read_bytes: 0,
-        write_bytes: 0,
+        read_bytes: Some(0),
+        write_bytes: Some(0),
         other_bytes: None,
         read_operations: Some(0),
         write_operations: Some(0),
@@ -241,7 +420,10 @@ fn present_windows_shaped_metrics_serialize_as_numbers() {
     })
     .unwrap();
     for key in [
+        "working_set_bytes",
         "private_bytes",
+        "read_bytes",
+        "write_bytes",
         "read_operations",
         "write_operations",
         "handle_count",
