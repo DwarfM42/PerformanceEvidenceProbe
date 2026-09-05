@@ -64,9 +64,8 @@ fn launch_bundle_records_required_metadata_real_metrics_and_release_lifecycle() 
     let manifest: Value =
         serde_json::from_slice(&fs::read(bundle.join("manifest.json")).expect("manifest"))
             .expect("manifest JSON");
-    assert_eq!(manifest["schema_draft_version"], "perf-evidence-v1-draft");
+    assert_eq!(manifest["schema_draft_version"], "perf-evidence-v2-draft");
     assert_eq!(manifest["run_state"], "COMPLETE");
-    assert_eq!(manifest["measurement_validity"], "VALID");
     assert!(manifest["artifact_list"].as_array().unwrap().len() >= 8);
     let host: Value = serde_json::from_slice(&fs::read(bundle.join("host.json")).expect("host"))
         .expect("host JSON");
@@ -153,10 +152,77 @@ fn launch_bundle_records_required_metadata_real_metrics_and_release_lifecycle() 
             .iter()
             .any(|event| event["record_type"] == "handle_released")
     );
+    let declared_unavailable = events
+        .iter()
+        .any(|event| event["record_type"] == "metric_unavailable");
+    let operational_unavailable = events.iter().any(|event| {
+        event["record_type"] == "metric_unavailable"
+            && matches!(
+                event["reason"].as_str(),
+                Some("authority_unavailable" | "sampling_degraded")
+            )
+    });
+    assert_eq!(
+        manifest["measurement_completeness"],
+        if declared_unavailable {
+            "DECLARED_PARTIAL"
+        } else {
+            "COMPLETE"
+        }
+    );
+    assert_eq!(
+        manifest["measurement_validity"],
+        if operational_unavailable {
+            "DEGRADED"
+        } else {
+            "VALID"
+        }
+    );
+    for (sample_ordinal, sample) in samples.iter().enumerate() {
+        for process in sample["processes"].as_array().expect("process rows") {
+            if process.get("thread_count").is_none() {
+                assert!(
+                    events.iter().any(|event| {
+                        event["record_type"] == "metric_unavailable"
+                            && event["metric"] == "process.thread_count"
+                            && event["subject_kind"] == "PROCESS_SAMPLE"
+                            && event["reason"] == "sampling_degraded"
+                            && event["process_local_id"] == process["process_local_id"]
+                            && event["sample_ordinal"] == sample_ordinal
+                    }),
+                    "a missing Windows thread count must have an exact typed availability event"
+                );
+            }
+        }
+        if sample["probe"].get("thread_count").is_none() {
+            assert!(
+                events.iter().any(|event| {
+                    event["record_type"] == "metric_unavailable"
+                        && event["metric"] == "probe.thread_count"
+                        && event["subject_kind"] == "SAMPLE"
+                        && event["reason"] == "sampling_degraded"
+                        && event["sample_ordinal"] == sample_ordinal
+                }),
+                "a missing probe thread count must have an exact typed availability event"
+            );
+        }
+    }
 
     let summary: Value =
         serde_json::from_slice(&fs::read(bundle.join("summary.json")).expect("summary"))
             .expect("summary JSON");
+    assert_eq!(
+        summary["summary_schema_draft_version"],
+        "perf-evidence-v2-draft"
+    );
+    assert_eq!(
+        summary["measurement_validity"], manifest["measurement_validity"],
+        "completed manifest must agree with reconstructed V2 validity"
+    );
+    assert_eq!(
+        summary["measurement_completeness"], manifest["measurement_completeness"],
+        "completed manifest must agree with reconstructed V2 completeness"
+    );
     assert!(
         summary["observed_distinct_process_count"]
             .as_u64()

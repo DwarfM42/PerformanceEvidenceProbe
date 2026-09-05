@@ -47,20 +47,24 @@ impl ProcessRecord {
 pub struct ProcessSample {
     pub process_local_id: u64,
     pub working_set_bytes: u64,
-    pub private_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub private_bytes: Option<u64>,
     pub user_cpu_time_ns: u64,
     pub kernel_cpu_time_ns: u64,
     pub read_bytes: u64,
     pub write_bytes: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub other_bytes: Option<u64>,
-    pub read_operations: u64,
-    pub write_operations: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_operations: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub write_operations: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub other_operations: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_count: Option<u32>,
-    pub handle_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handle_count: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -81,29 +85,39 @@ pub struct JobAccounting {
 #[derive(Debug, Clone, Serialize)]
 pub struct ProbeSample {
     pub working_set_bytes: u64,
-    pub private_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub private_bytes: Option<u64>,
     pub user_cpu_time_ns: u64,
     pub kernel_cpu_time_ns: u64,
     pub read_bytes: u64,
     pub write_bytes: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_count: Option<u32>,
-    pub handle_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handle_count: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SystemSample {
-    pub system_user_cpu_time_ns: u64,
-    pub system_kernel_cpu_time_ns: u64,
-    pub system_idle_cpu_time_ns: u64,
-    pub available_physical_memory_bytes: u64,
-    pub commit_current_bytes: u64,
-    pub commit_limit_bytes: u64,
-    pub disk_free_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_user_cpu_time_ns: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_kernel_cpu_time_ns: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_idle_cpu_time_ns: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub available_physical_memory_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit_current_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit_limit_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disk_free_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SampleRecord {
+    pub schema_draft_version: &'static str,
     pub record_type: &'static str,
     pub wall_time_utc: String,
     pub monotonic_ns: u64,
@@ -113,7 +127,8 @@ pub struct SampleRecord {
     pub gap_from_previous_sample_ns: Option<u64>,
     pub root_process_confirmed_live: bool,
     pub process_set_working_set_sum_bytes: u64,
-    pub process_set_private_bytes_sum: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_set_private_bytes_sum: Option<u64>,
     pub processes: Vec<ProcessSample>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub job: Option<JobAccounting>,
@@ -142,6 +157,17 @@ impl EvidenceEvent {
         }
     }
 
+    pub fn metric_unavailable(
+        metric: Metric,
+        subject_kind: SubjectKind,
+        reason: UnavailableReason,
+    ) -> Self {
+        Self::new("metric_unavailable")
+            .with_string("metric", metric.as_str())
+            .with_string("subject_kind", subject_kind.as_str())
+            .with_string("reason", reason.as_str())
+    }
+
     pub fn with_u64(mut self, name: &str, value: u64) -> Self {
         self.detail.insert(name.into(), value.into());
         self
@@ -155,6 +181,86 @@ impl EvidenceEvent {
     pub fn with_string(mut self, name: &str, value: impl Into<String>) -> Self {
         self.detail.insert(name.into(), value.into().into());
         self
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Metric {
+    ProcessPrivateBytes,
+    ProcessOtherBytes,
+    ProcessReadOperations,
+    ProcessWriteOperations,
+    ProcessOtherOperations,
+    ProcessThreadCount,
+    ProcessHandleCount,
+    ProbePrivateBytes,
+    ProbeThreadCount,
+    ProbeHandleCount,
+    SystemUserCpuTimeNs,
+    SystemKernelCpuTimeNs,
+    SystemIdleCpuTimeNs,
+    SystemAvailablePhysicalMemoryBytes,
+    SystemCommitCurrentBytes,
+    SystemCommitLimitBytes,
+    SystemDiskFreeBytes,
+}
+impl Metric {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ProcessPrivateBytes => "process.private_bytes",
+            Self::ProcessOtherBytes => "process.other_bytes",
+            Self::ProcessReadOperations => "process.read_operations",
+            Self::ProcessWriteOperations => "process.write_operations",
+            Self::ProcessOtherOperations => "process.other_operations",
+            Self::ProcessThreadCount => "process.thread_count",
+            Self::ProcessHandleCount => "process.handle_count",
+            Self::ProbePrivateBytes => "probe.private_bytes",
+            Self::ProbeThreadCount => "probe.thread_count",
+            Self::ProbeHandleCount => "probe.handle_count",
+            Self::SystemUserCpuTimeNs => "system.system_user_cpu_time_ns",
+            Self::SystemKernelCpuTimeNs => "system.system_kernel_cpu_time_ns",
+            Self::SystemIdleCpuTimeNs => "system.system_idle_cpu_time_ns",
+            Self::SystemAvailablePhysicalMemoryBytes => "system.available_physical_memory_bytes",
+            Self::SystemCommitCurrentBytes => "system.commit_current_bytes",
+            Self::SystemCommitLimitBytes => "system.commit_limit_bytes",
+            Self::SystemDiskFreeBytes => "system.disk_free_bytes",
+        }
+    }
+}
+#[derive(Debug, Clone, Copy)]
+pub enum SubjectKind {
+    Run,
+    Process,
+    Sample,
+    ProcessSample,
+}
+impl SubjectKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Run => "RUN",
+            Self::Process => "PROCESS",
+            Self::Sample => "SAMPLE",
+            Self::ProcessSample => "PROCESS_SAMPLE",
+        }
+    }
+}
+#[derive(Debug, Clone, Copy)]
+pub enum UnavailableReason {
+    Unsupported,
+    NotApplicable,
+    SemanticMismatch,
+    AuthorityUnavailable,
+    SamplingDegraded,
+}
+impl UnavailableReason {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unsupported => "unsupported",
+            Self::NotApplicable => "not_applicable",
+            Self::SemanticMismatch => "semantic_mismatch",
+            Self::AuthorityUnavailable => "authority_unavailable",
+            Self::SamplingDegraded => "sampling_degraded",
+        }
     }
 }
 

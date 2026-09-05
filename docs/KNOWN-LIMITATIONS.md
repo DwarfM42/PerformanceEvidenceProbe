@@ -15,7 +15,7 @@ implemented public release, not promises about future scope.
 - **Out of scope:** advanced sensors, profiler-style function attribution,
   debugging, code injection, automatic diagnosis or tuning, calibration, and
   performance certification.
-- The evidence schema is an implementation draft (`perf-evidence-v1-draft`),
+- The evidence schema is an implementation draft (`perf-evidence-v2-draft`),
   not a frozen or portable interchange contract.
 
 ## Observation boundary
