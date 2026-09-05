@@ -643,8 +643,8 @@ fn process_sample(process: HANDLE, process_local_id: u64) -> Result<ProcessSampl
         process_local_id,
         working_set_bytes: Some(memory.WorkingSetSize as u64),
         private_bytes: Some(memory.PrivateUsage as u64),
-        user_cpu_time_ns: filetime_to_ns(user),
-        kernel_cpu_time_ns: filetime_to_ns(kernel),
+        user_cpu_time_ns: Some(filetime_to_ns(user)),
+        kernel_cpu_time_ns: Some(filetime_to_ns(kernel)),
         read_bytes: Some(io.ReadTransferCount),
         write_bytes: Some(io.WriteTransferCount),
         other_bytes: Some(io.OtherTransferCount),
@@ -790,8 +790,18 @@ fn emit_terminal_event(
             .with_u64("process_local_id", process_local_id)
             .with_u64("pid", unsafe { GetProcessId(process) } as u64)
             .with_u64("exit_code", exit_code as u64)
-            .with_u64("terminal_user_cpu_time_ns", sample.user_cpu_time_ns)
-            .with_u64("terminal_kernel_cpu_time_ns", sample.kernel_cpu_time_ns)
+            .with_u64(
+                "terminal_user_cpu_time_ns",
+                sample
+                    .user_cpu_time_ns
+                    .context("Windows terminal user CPU unexpectedly unavailable")?,
+            )
+            .with_u64(
+                "terminal_kernel_cpu_time_ns",
+                sample
+                    .kernel_cpu_time_ns
+                    .context("Windows terminal kernel CPU unexpectedly unavailable")?,
+            )
             .with_u64(
                 "terminal_read_bytes",
                 sample.read_bytes.expect("Windows read bytes are present"),

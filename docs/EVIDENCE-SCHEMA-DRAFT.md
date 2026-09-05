@@ -43,11 +43,13 @@ are invalid evidence, not absence. Derived witnesses and summary fields are not
 availability-event targets.
 
 The closed raw metric vocabulary is domain-qualified: `process.working_set_bytes`,
-`process.private_bytes`, `process.read_bytes`, `process.write_bytes`,
+`process.private_bytes`, `process.user_cpu_time_ns`,
+`process.kernel_cpu_time_ns`, `process.read_bytes`, `process.write_bytes`,
 `process.other_bytes`, `process.read_operations`, `process.write_operations`,
 `process.other_operations`, `process.thread_count`, `process.handle_count`,
-`probe.working_set_bytes`, `probe.private_bytes`, `probe.read_bytes`,
-`probe.write_bytes`, `probe.thread_count`, `probe.handle_count`, and
+`probe.working_set_bytes`, `probe.private_bytes`, `probe.user_cpu_time_ns`,
+`probe.kernel_cpu_time_ns`, `probe.read_bytes`, `probe.write_bytes`,
+`probe.thread_count`, `probe.handle_count`, and
 `system.{system_user_cpu_time_ns,system_kernel_cpu_time_ns,system_idle_cpu_time_ns,available_physical_memory_bytes,commit_current_bytes,commit_limit_bytes,disk_free_bytes}`.
 
 `metric_unavailable` has closed `reason` values: `unsupported`,
@@ -65,11 +67,10 @@ sample-local ID alone is insufficient.
 
 The normative required profile is scoped by V2 represented raw domains and
 runtime mode, not all conceivable enum members. Job accounting is required only
-when its domain is represented. The conditionally absent canonical raw leaves
-are process/probe working set, private bytes, read bytes, write bytes, optional
-I/O-operation leaves, thread count, handle count, and the listed system leaves.
-Process/probe CPU counters remain required numeric raw observations. For every
-conditionally absent leaf, a numeric value or one exact valid explanation is
+when its domain is represented. Every canonical process/probe numeric leaf,
+including the user/kernel CPU counters, and every listed system leaf is
+conditionally absent under the V2 availability contract. For every such leaf,
+a numeric value or one exact valid explanation is
 required. A RUN declaration can explain the same exact leaf across samples, but
 cannot explain another metric or a value that is present (including `0`). If a
 RUN declaration and an exact operational declaration both match one omission,
@@ -132,7 +133,10 @@ unique physical memory.
 Events include launch Job assignment, default attach observation, child discovery,
 collector degradation, observed exit, and handle release. A terminal-counter
 event records a capture attempt after exit; it is not a promise that every
-process had terminal counters available.
+process had terminal counters available. When an exit code is present it is a
+`u32`; thread/handle counts are also `u32`; other numeric leaves are `u64`.
+Malformed or out-of-range present terminal/identity values fail reconstruction
+rather than becoming silently absent.
 
 ## Derived summary
 
