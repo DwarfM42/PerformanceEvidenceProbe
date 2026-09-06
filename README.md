@@ -8,11 +8,24 @@ PerformanceEvidenceProbe lets you inspect runtime performance without instrument
 
 Run a command or attach to a process, keep the raw observations, and reconstruct a deterministic summary later. For counters covered by the availability contract, an observed zero is distinct from unavailable evidence, and semantically different platform measurements are not substituted. See the [platform limits](#cross-platform-behavior), including the current Linux/macOS timing limitations.
 
+## What you get
+
+A completed bundle lets you inspect the following **within its documented platform and mode boundary**:
+
+- **Observation boundary, lifecycle, and outcome.** Process records bind an observed PID to its start time and boot identity. Timestamped samples preserve live-root observation points; events retain launch/attach, exit or other terminal, handle-release, and collector-degradation outcomes when they occur. The completed manifest separately records `run_state` (`COMPLETE` or `TARGET_FAILED`) and measurement validity/completeness, so Probe collection state is not conflated with the workload outcome.
+- **Time and CPU activity.** Windows raw monotonic samples support first-to-last-sample elapsed time and sample-gap evidence. Per-process user/kernel CPU counters are retained, and Windows launch Job accounting supports derived run CPU totals and utilization. Linux and macOS retain qualified direct-root user/kernel CPU and thread samples, but their current zero `elapsed_ns` and gap fields are **not** timing evidence.
+- **Memory and I/O evidence with stated semantics.** Windows samples retain per-process working-set/private-byte values, observed-process-set sums, read/write byte and operation counters, and (in launch mode) Job I/O accounting. The derived memory peaks are sampled maxima, not operating-system lifetime peaks. Linux and macOS do not substitute superficially similar memory or I/O measurements for these Windows-defined metrics.
+- **Process and descendant scope.** Windows `run` retains Windows Job aggregate counts/accounting and snapshot-discovered process identities, subject to process races, access, and the configured retained-handle bound; default Windows `attach` observes the requested root only. Linux and macOS observe only the direct run root or attached root and make no descendant, process-tree-closure, or complete-process-total claim.
+- **Collector and host context.** Raw samples separately record Probe CPU activity where available. Windows additionally records Probe memory, I/O, thread, and handle observations plus host, configuration, and capability metadata. These are collector observations, not a complete measurement of all collection overhead.
+- **Reviewable raw evidence rather than false zeroes.** Availability-contract counters are either numeric observations (including a truthful `0`) or omitted with one typed `metric_unavailable` declaration naming its metric, scope, and reason. `summary.json` is deterministic derived output from the saved raw streams, so its retained measurements and status can be traced back to raw samples and events.
+
+See [Cross-platform behavior](#cross-platform-behavior) for the qualified scope and current Linux/macOS limits, and [Evidence semantics](#evidence-semantics) for raw-record and summary authority.
+
 ## What it does
 
-- Creates a unique evidence bundle for a launched command or an observed PID.
-- Preserves raw process identities, samples, lifecycle events, context metadata, and a derived `summary.json`.
-- Uses a full-accounting Windows collector and intentionally narrower qualified collectors on Linux and macOS.
+- Creates a unique evidence bundle for a launched command or an observed PID, then records process identities, raw samples, and lifecycle events through a bounded single-writer NDJSON path.
+- On Windows, the qualified full-accounting collector assigns a launched root to a non-destructive accounting Job, periodically samples the observed process set, and attempts bounded descendant discovery. Linux and macOS use intentionally narrower qualified direct-root collectors; default attach is observational on every platform.
+- Finalizes the raw streams before regenerating `summary.json`, then writes platform context and a completion manifest. An interrupted collector can leave parseable raw streams, but not a completed bundle.
 - Records process/run-level evidence to support performance analysis and benchmarking, without providing call-stack profiling, automatic diagnosis, or benchmark certification.
 
 ## Quick start
@@ -132,16 +145,6 @@ Or in a POSIX shell:
 "$probe" attach --help
 "$probe" summarize --help
 ```
-
-## What you get
-
-A completed bundle normally contains raw `processes.ndjson`, `samples.ndjson`, and `events.ndjson`; context files including `manifest.json`; and a derived `summary.json`.
-
-- **Raw observations** are the primary record.
-- **Events** explain lifecycle, retention, degradation, and terminal-observation outcomes.
-- **Manifest and context** identify the run, host, target, configuration, capabilities, and completed artifacts.
-- **Summary** is deterministic derived output that can be regenerated from the raw evidence.
-- **Validity and completeness** distinguish trustworthy bounded evidence from degraded, declared-partial, invalid, or unfinished output.
 
 ## Sample output
 
