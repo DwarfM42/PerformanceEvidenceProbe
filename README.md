@@ -143,15 +143,44 @@ A completed bundle normally contains raw `processes.ndjson`, `samples.ndjson`, a
 - **Summary** is deterministic derived output that can be regenerated from the raw evidence.
 - **Validity and completeness** distinguish trustworthy bounded evidence from degraded, declared-partial, invalid, or unfinished output.
 
-## Cross-platform behavior
+## Sample output
 
-For optional process, collector, and system counters covered by the availability contract, observed zero remains zero, unavailable values are explicit, and semantically different measurements are not silently substituted. This guarantee does not cover every numeric field in the draft format.
+The examples below were captured from the same controlled `perf-workload cpu-single` scenario using v0.2.0-compatible current-main code on the three qualified platforms. They are sanitized illustrative evidence output, **not cross-machine benchmark results**: the machines differ in CPU, architecture, operating system, and hardware. Each completed bundle was independently reconstructed with `perf-probe summarize`; the regenerated `summary.json` bytes matched the captured summary.
 
-**Qualified scope:** Windows x86_64 provides full-accounting `run` and observation-only `attach`. Linux x86_64 and macOS arm64 provide bounded direct-root `run` and observation-only single-root `attach`. Linux and macOS do not claim Job accounting, containment, descendant or process-tree closure, complete process-set totals, Windows-equivalent memory/handle/I/O/host metrics, or synthetic signal exit codes. Their omissions are typed evidence, not numeric zero.
+| Qualified platform | Run state and summary state | Representative observed numeric evidence | Explicit unavailable evidence |
+|---|---|---|---|
+| Windows x86_64 | `COMPLETE`; `DEGRADED` / `DECLARED_PARTIAL`; 5 samples | A live sample recorded `process.thread_count: 4`; the terminal event recorded `terminal_user_cpu_time_ns: 1640625000` and `terminal_kernel_cpu_time_ns: 156250000`. | No `semantic_mismatch` declaration occurred in this run. One exact `process.thread_count` sample was declared `sampling_degraded`, which accounts for the degraded/partial summary. |
+| Linux x86_64 | `COMPLETE`; `VALID` / `DECLARED_PARTIAL`; 4 samples | The last root sample recorded `process.user_cpu_time_ns: 1500000000`, `process.kernel_cpu_time_ns: 0`, and `process.thread_count: 1`. | 22 RUN-scoped `semantic_mismatch` declarations, including process working-set/private/I/O/handle, probe memory/I/O/thread/handle, and system CPU/memory/commit/disk metrics. |
+| macOS arm64 | `COMPLETE`; `VALID` / `DECLARED_PARTIAL`; 1 sample | The direct-root sample recorded `process.user_cpu_time_ns: 0`, `process.kernel_cpu_time_ns: 2071`, and `process.thread_count: 1`. | The same 22 RUN-scoped `semantic_mismatch` declarations, including `process.working_set_bytes`; no declared metric was serialized as a numeric proxy. |
 
-**Linux/macOS timing limitation in v0.2.0:** raw monotonic/scheduled time and sampling-delay fields are fixed at `0`, and sample gaps are absent. The resulting summary `elapsed_ns` and `max_sample_gap_exact_ns` values are not measured duration or gap evidence. Do not interpret those zeros as observed zero time or use them for timing comparisons.
+Abbreviated and sanitized excerpts show the two important shapes. `0` is a JSON number when it was observed; it is not an absence marker:
 
-GitHub-hosted Windows, Linux, and macOS CI verifies canonical repository checks. A green hosted run is not itself a real-machine runtime qualification claim.
+```json
+{
+  "processes": [
+    {
+      "user_cpu_time_ns": 0,
+      "kernel_cpu_time_ns": 2071,
+      "thread_count": 1
+    }
+  ]
+}
+```
+
+```json
+{
+  "record_type": "metric_unavailable",
+  "metric": "process.working_set_bytes",
+  "subject_kind": "RUN",
+  "reason": "semantic_mismatch"
+}
+```
+
+The Windows sample shows richer Windows-qualified accounting but also an operational sampling omission. Linux and macOS show qualified direct-root CPU/thread observations while explicitly omitting non-equivalent canonical metrics. These numbers demonstrate evidence semantics and output shape, not which operating system or machine is faster.
+
+Only the fields above were extracted for publication. Host/user names, PIDs, boot or machine identifiers, timestamps, repository and executable paths, launch arguments, environment, and hardware/OS-version details were omitted. The raw temporary bundles remain local and are not these excerpts.
+
+These examples reflect the v0.2.0-era `perf-evidence-v2-draft` format and may evolve with later schema revisions.
 
 ## Evidence semantics
 
@@ -164,6 +193,16 @@ The raw evidence streams are the primary record:
 `summary.json` is derived output. `perf-probe summarize --bundle <bundle>` reconstructs it from the saved raw streams with deterministic serialization for identical complete input. It is a convenience summary, not a second measurement authority. See the [evidence schema](docs/EVIDENCE-SCHEMA-DRAFT.md) for bundle metadata, recovery rules, and field semantics.
 
 Raw evidence records what the collector observed. It does **not** prove that the workload is correct, representative, complete, or suitable for a particular performance claim. A sampled peak is not an operating-system lifetime peak; a process-set working-set sum is not unique physical memory; and later analysis or qualification remains the consumer's responsibility.
+
+## Cross-platform behavior
+
+For optional process, collector, and system counters covered by the availability contract, observed zero remains zero, unavailable values are explicit, and semantically different measurements are not silently substituted. This guarantee does not cover every numeric field in the draft format.
+
+**Qualified scope:** Windows x86_64 provides full-accounting `run` and observation-only `attach`. Linux x86_64 and macOS arm64 provide bounded direct-root `run` and observation-only single-root `attach`. Linux and macOS do not claim Job accounting, containment, descendant or process-tree closure, complete process-set totals, Windows-equivalent memory/handle/I/O/host metrics, or synthetic signal exit codes. Their omissions are typed evidence, not numeric zero.
+
+**Linux/macOS timing limitation in v0.2.0:** raw monotonic/scheduled time and sampling-delay fields are fixed at `0`, and sample gaps are absent. The resulting summary `elapsed_ns` and `max_sample_gap_exact_ns` values are not measured duration or gap evidence. Do not interpret those zeros as observed zero time or use them for timing comparisons.
+
+GitHub-hosted Windows, Linux, and macOS CI verifies canonical repository checks. A green hosted run is not itself a real-machine runtime qualification claim.
 
 ## Dashboard-independent collection
 
