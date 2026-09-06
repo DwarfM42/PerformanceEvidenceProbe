@@ -299,10 +299,10 @@ PerformanceEvidenceProbe is licensed under either [Apache License, Version 2.0](
 
 ## Sources
 
-[1] https://raw.githubusercontent.com/HSF/prmon/main/README.md — HSF prmon README
-[5] https://raw.githubusercontent.com/sloev/metrace/master/README.md — Metrace README
-[7] https://raw.githubusercontent.com/sharkdp/hyperfine/master/README.md — hyperfine README
-[10] https://raw.githubusercontent.com/phoronix-test-suite/phoronix-test-suite/master/README.md — Phoronix Test Suite README
-[11] https://learn.microsoft.com/en-us/windows-hardware/test/wpt/windows-performance-recorder — Windows Performance Recorder documentation
-[12] https://raw.githubusercontent.com/astrofrog/psrecord/main/README.rst — psrecord README
-[13] https://raw.githubusercontent.com/smarr/ReBench/master/README.md — ReBench README
+- [1] https://raw.githubusercontent.com/HSF/prmon/main/README.md — HSF prmon README
+- [5] https://raw.githubusercontent.com/sloev/metrace/master/README.md — Metrace README
+- [7] https://raw.githubusercontent.com/sharkdp/hyperfine/master/README.md — hyperfine README
+- [10] https://raw.githubusercontent.com/phoronix-test-suite/phoronix-test-suite/master/README.md — Phoronix Test Suite README
+- [11] https://learn.microsoft.com/en-us/windows-hardware/test/wpt/windows-performance-recorder — Windows Performance Recorder documentation
+- [12] https://raw.githubusercontent.com/astrofrog/psrecord/main/README.rst — psrecord README
+- [13] https://raw.githubusercontent.com/smarr/ReBench/master/README.md — ReBench README
