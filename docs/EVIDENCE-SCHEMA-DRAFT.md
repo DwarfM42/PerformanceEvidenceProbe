@@ -8,24 +8,27 @@
 ## Bundle lifecycle and layout
 
 A normally completed `run` or default `attach` creates a unique subdirectory
-beneath `--output` and writes:
+beneath `--output`. Its files depend on the platform:
 
 | File | Kind | Current purpose |
 |---|---|---|
-| `processes.ndjson` | Raw evidence | Process identity records and handle-acquisition outcomes. |
+| `processes.ndjson` | Raw evidence | Process identity records and platform-specific observation-acquisition outcomes. |
 | `samples.ndjson` | Raw evidence | Timestamped cumulative process counters, process-set sums, optional Job accounting, system samples, and collector samples. |
 | `events.ndjson` | Raw evidence | Lifecycle, retention/degradation, and terminal-counter events. |
 | `summary.json` | Derived | Deterministic summary reconstructed from saved raw evidence. |
-| `host.json` | Context metadata | Windows version/build, architecture, CPU/RAM details, and collector version. |
-| `target.json` | Context metadata | Mode, root identity, executable path where available, exit code, and Job/command-line handling. |
-| `config.json` | Context metadata | Sampling, handle-retention, Job, writer, and flush settings. |
-| `capabilities.json` | Context metadata | Current collection capability status. |
+| `host.json` | Windows context metadata | Windows version/build, architecture, CPU/RAM details, and collector version. |
+| `target.json` | Windows context metadata | Mode, root identity, executable path where available, exit code, and Job/command-line handling. |
+| `config.json` | Windows context metadata | Sampling, handle-retention, Job, writer, and flush settings. |
+| `capabilities.json` | Windows context metadata | Current Windows collection capability status. |
 | `manifest.json` | Context metadata | Run ID, schema/version identity, run state, artifact sizes, and measurement validity. |
+| `platform.json` | Context metadata | Linux/macOS-specific scope, identity, or launch details, depending on mode. |
+| `linux_terminal.json` | Linux context metadata | Signal terminal outcome for a directly owned `run` root, written only when it terminates by signal. |
 
 The final JSON metadata is written only after the raw streams are finalized and
-the summary has been generated. Platform runtimes write their own host, target,
-configuration, and capability documents; the common writer then builds the
-completed manifest from those documents plus the raw streams and summary. If the
+the summary has been generated. Windows writes `host.json`, `target.json`,
+`config.json`, and `capabilities.json`; Linux/macOS write `platform.json` instead.
+The common completion helper then builds the manifest from the runtime's supplied
+metadata files plus the raw streams and summary. If the
 collector is interrupted, the bundle may contain only raw NDJSON. That is
 intentionally not presented as a completed bundle.
 
@@ -115,24 +118,40 @@ claim in this draft.
 
 A process record contains a collector-local `process_local_id`, PID, process
 start time, boot-session identity, optional parent local ID, discovery source,
-and handle-acquisition result. A PID alone is not an identity.
+and the platform-specific acquisition result (the serialized field name remains
+`handle_acquisition_result`). A PID alone is not an identity.
 
-Launch mode registers the root and attempts snapshot-based descendant discovery.
-Attach mode retains only the requested root observation handle. Child discovery
+On Windows, launch mode registers the root and attempts snapshot-based descendant discovery.
+Windows attach mode retains only the requested root observation handle. Child discovery
 and retention can be incomplete because processes can race to exit, access can
 be denied, and the configured handle bound can be reached. An omitted identity
 therefore does not prove that a process did not exist.
 
+Linux and macOS register only the direct run root or specified attach root and
+do not attempt descendant discovery. Their attach modes return after a bounded
+observation rather than waiting for target exit. See the root README's platform
+details for sampling cadence and current qualification boundaries.
+
 ### Samples and events
 
-Samples preserve raw cumulative CPU and I/O counters, working set, private bytes,
-thread/handle counts, timing, and process-set sums. Launch samples also include
-Windows Job accounting. `process_set_working_set_sum_bytes` is a sum of observed
+The optional-counter availability contract above does not govern every timing
+field. In v0.2.0, Linux/macOS write `monotonic_ns`, `scheduled_monotonic_ns`, and
+`sampling_delay_ns` as fixed zero values, with `gap_from_previous_sample_ns`
+absent. Reconstruction consequently produces zero `elapsed_ns` and
+`max_sample_gap_exact_ns`; these are not measured duration/gap evidence. This is
+a current implementation limitation, not an extension of the availability rules.
+
+Where available under the platform contract, samples preserve raw cumulative CPU
+and I/O counters, working set, private bytes, thread/handle counts, timing, and
+process-set sums. Windows launch samples also include Job accounting; unsupported
+or semantically non-equivalent fields follow the V2 availability rules above.
+`process_set_working_set_sum_bytes` is a sum of observed
 working sets; shared physical pages can be counted more than once, so it is not
 unique physical memory.
 
-Events include launch Job assignment, default attach observation, child discovery,
-collector degradation, observed exit, and handle release. A terminal-counter
+Events depend on runtime and mode. Windows events include launch Job assignment,
+default attach observation, child discovery, collector degradation, observed exit,
+and handle release; these are not required lifecycle stages on every OS. A terminal-counter
 event records a capture attempt after exit; it is not a promise that every
 process had terminal counters available. When an exit code is present it is a
 `u32`; thread/handle counts are also `u32`; other numeric leaves are `u64`.
@@ -142,10 +161,11 @@ rather than becoming silently absent.
 ## Derived summary
 
 `summary.json` is generated by a separate reader from persisted raw evidence,
-not from sampler memory. Run:
+not from sampler memory. Replace the quoted path below with a completed bundle
+path printed by `run` or `attach`:
 
 ```bash
-bash scripts/cargo-local.sh run --release --bin perf-probe -- summarize --bundle <bundle>
+bash scripts/cargo-local.sh run --release --bin perf-probe -- summarize --bundle "path/to/bundle"
 ```
 
 For identical complete input streams, its fixed serialization is byte-identical.
@@ -166,9 +186,11 @@ measurements were representative or qualified.
 
 ## Privacy and consumer responsibilities
 
-A bundle can include timestamps, PIDs, host OS/build/hardware details, and a
-normalized executable path when available. It deliberately does not persist the
-full launch command line. Review generated evidence before sharing it.
+A bundle can include timestamps, PIDs, host OS/build/hardware details, and an
+executable path when available. Linux and macOS `run` persist
+`launched_command_argv` in `platform.json`, even though that document also reports
+`full_command_line_saved: false`; do not interpret that flag as an argument-redaction guarantee. Avoid
+secrets in launch arguments and review all generated evidence before sharing it.
 
 Consumers must not infer workload correctness, workload representativeness,
 complete process coverage, unique-memory semantics, an OS lifetime peak,

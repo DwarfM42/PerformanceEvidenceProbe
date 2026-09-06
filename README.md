@@ -4,77 +4,134 @@
 [![Linux CI](https://github.com/DwarfM42/PerformanceEvidenceProbe/actions/workflows/linux-ci.yml/badge.svg?branch=main)](https://github.com/DwarfM42/PerformanceEvidenceProbe/actions/workflows/linux-ci.yml)
 [![macOS CI](https://github.com/DwarfM42/PerformanceEvidenceProbe/actions/workflows/macos-ci.yml/badge.svg?branch=main)](https://github.com/DwarfM42/PerformanceEvidenceProbe/actions/workflows/macos-ci.yml)
 
-PerformanceEvidenceProbe records inspectable runtime performance evidence for Windows, Linux, and macOS.
+PerformanceEvidenceProbe lets you inspect runtime performance without instrumenting your application. It supports Windows, Linux, and macOS.
 
-Run a command or attach to a process, keep the raw observations, and reconstruct a deterministic summary later. When a metric cannot be observed truthfully, it is recorded as unavailable rather than fabricated as zero or substituted with a different platform measurement.
+Run a command or attach to a process, keep the raw observations, and reconstruct a deterministic summary later. For counters covered by the availability contract, an observed zero is distinct from unavailable evidence, and semantically different platform measurements are not substituted. See the [platform limits](#cross-platform-behavior), including the current Linux/macOS timing limitations.
 
 ## What it does
 
 - Creates a unique evidence bundle for a launched command or an observed PID.
 - Preserves raw process identities, samples, lifecycle events, context metadata, and a derived `summary.json`.
 - Uses a full-accounting Windows collector and intentionally narrower qualified collectors on Linux and macOS.
-- Keeps collection separate from profiling, diagnosis, benchmark certification, and interpretation.
+- Records process/run-level evidence to support performance analysis and benchmarking, without providing call-stack profiling, automatic diagnosis, or benchmark certification.
 
 ## Quick start
 
-Install a release binary, then run these commands from the directory containing it. On Windows use `./perf-probe.exe`; on Linux and macOS use `./perf-probe` after `chmod +x perf-probe`.
+First [download and verify your release binary](#installation). Open a terminal in the directory containing it; these examples keep the original download filename and use harmless, short-lived commands.
 
-```bash
-# Set this once for the platform-specific release binary.
-probe=./perf-probe        # Linux or macOS
-# probe=./perf-probe.exe  # Windows Git Bash
+### Windows PowerShell
 
-# Run a local command. Use -- before the target executable.
-bundle="$("$probe" run --output ./evidence -- <command> [args...])"
+```powershell
+$probe = '.\perf-probe-windows-x86_64.exe'
 
-# Observe an already-running process until it exits.
-"$probe" attach --pid <PID> --output ./evidence
+# Run a command, then rebuild its summary from the saved observations.
+$bundle = & $probe run --output .\evidence -- powershell.exe -NoProfile -Command "Start-Sleep -Seconds 2"
+& $probe summarize --bundle $bundle
 
-# Rebuild a deterministic summary from saved raw evidence.
-"$probe" summarize --bundle "$bundle"
+# Start a separate process so attach has a real, live PID to observe.
+$target = Start-Process powershell.exe -ArgumentList '-NoProfile', '-Command', 'Start-Sleep -Seconds 5' -NoNewWindow -PassThru
+$attachedBundle = & $probe attach --pid $target.Id --output .\evidence
+& $probe summarize --bundle $attachedBundle
 ```
 
-`run` prints the unique bundle directory it created. Replace `<command> [args...]` with a command available on your machine. The `attach` command also prints its own unique bundle path.
+### Linux / macOS
+
+```sh
+# Select the downloaded binary for your OS.
+case "$(uname -s)" in
+  Linux)  probe=./perf-probe-linux-x86_64 ;;
+  Darwin) probe=./perf-probe-macos-arm64 ;;
+esac
+
+bundle="$("$probe" run --output ./evidence -- sleep 2)"
+"$probe" summarize --bundle "$bundle"
+
+# Observe a separate, short-lived process.
+sleep 5 &
+target_pid=$!
+attached_bundle="$("$probe" attach --pid "$target_pid" --output ./evidence)"
+wait "$target_pid"
+"$probe" summarize --bundle "$attached_bundle"
+```
+
+`run` and `attach` print the unique bundle directory they created on successful completion. These quiet targets make capturing that path straightforward; for your own command, target stdout may also appear, so use the printed bundle path rather than treating all stdout as a path. If collection fails, inspect the error before running `summarize`. See [platform details](#platform-details) for observation duration and coverage differences.
 
 ## Installation
 
 Download the appropriate v0.2.0 asset from the [official release](https://github.com/DwarfM42/PerformanceEvidenceProbe/releases/tag/v0.2.0). Cloning this Rust repository is for building from source, not the primary installation path.
 
+Also download [`SHA256SUMS.txt`](https://github.com/DwarfM42/PerformanceEvidenceProbe/releases/download/v0.2.0/SHA256SUMS.txt) into the same directory. **Before first launch**, calculate the binary's SHA-256 with the command for your OS below and compare it with the entire hash on that filename's line in `SHA256SUMS.txt` (hex letter case does not matter). Do not run it if the hashes differ. Verify before renaming the binary.
+
 ### Windows x86_64
 
-Download [`perf-probe-windows-x86_64.exe`](https://github.com/DwarfM42/PerformanceEvidenceProbe/releases/download/v0.2.0/perf-probe-windows-x86_64.exe). Keep the `.exe` filename, or place it in a directory on `PATH` as `perf-probe.exe`.
+Download [`perf-probe-windows-x86_64.exe`](https://github.com/DwarfM42/PerformanceEvidenceProbe/releases/download/v0.2.0/perf-probe-windows-x86_64.exe). In PowerShell:
+
+```powershell
+Get-FileHash -Algorithm SHA256 .\perf-probe-windows-x86_64.exe
+Select-String -Path .\SHA256SUMS.txt -Pattern ' \*perf-probe-windows-x86_64\.exe$'
+```
+
+The executable is currently **unsigned**. SmartScreen may show "Windows protected your PC." After verifying the official release and checksum, inspect the prompt; use **More info → Run anyway** only if you intentionally downloaded and trust this official artifact. Do not disable SmartScreen globally. If policy prevents an exception, consult your administrator rather than bypassing it.
 
 ### Linux x86_64
 
-Download [`perf-probe-linux-x86_64`](https://github.com/DwarfM42/PerformanceEvidenceProbe/releases/download/v0.2.0/perf-probe-linux-x86_64), rename it to `perf-probe` if desired, and make it executable:
+Download [`perf-probe-linux-x86_64`](https://github.com/DwarfM42/PerformanceEvidenceProbe/releases/download/v0.2.0/perf-probe-linux-x86_64). Calculate its checksum:
 
-```bash
-chmod +x perf-probe
+```sh
+sha256sum perf-probe-linux-x86_64
+grep ' \*perf-probe-linux-x86_64$' SHA256SUMS.txt
 ```
 
-Optionally move it to a directory already on `PATH`.
+After the hashes match, make the binary executable:
+
+```sh
+chmod +x perf-probe-linux-x86_64
+```
 
 ### macOS Apple Silicon
 
-Download [`perf-probe-macos-arm64`](https://github.com/DwarfM42/PerformanceEvidenceProbe/releases/download/v0.2.0/perf-probe-macos-arm64), rename it to `perf-probe` if desired, and make it executable:
+Download [`perf-probe-macos-arm64`](https://github.com/DwarfM42/PerformanceEvidenceProbe/releases/download/v0.2.0/perf-probe-macos-arm64). Calculate its checksum:
 
-```bash
-chmod +x perf-probe
+```sh
+shasum -a 256 perf-probe-macos-arm64
+grep ' \*perf-probe-macos-arm64$' SHA256SUMS.txt
 ```
 
-Optionally move it to a directory already on `PATH`.
+After the hashes match, make the binary executable:
+
+```sh
+chmod +x perf-probe-macos-arm64
+```
+
+This release is **not Developer ID-signed or notarized by Apple**. If Gatekeeper blocks first launch after you downloaded the official artifact and verified its checksum, follow [Apple's per-app approval guidance](https://support.apple.com/en-us/102445): **System Settings → Privacy & Security → Open Anyway**, then retry the command. Use an exception only if you trust the artifact; do not disable Gatekeeper globally or ignore a malware warning.
+
+### Optional PATH setup and verification limits
+
+After trying the examples, you may rename the binary to `perf-probe` (`perf-probe.exe` on Windows) and move it into a directory already on `PATH`; adjust the examples if you do.
+
+The published checksums verify artifact bytes against the release inventory. They do **not** prove how the binary was built or that it is safe. Cryptographic build provenance / GitHub artifact attestation is not established for v0.2.0; it remains a future hardening item, not a current verification claim.
 
 ## Basic usage
 
-`--output` names the parent directory; each command creates a unique bundle beneath it. `run` uses `--` to separate Probe options from the target command. Default `attach` is observation-only and never assigns a Job.
+`--output` names the parent directory; `run` and `attach` each create a unique bundle beneath it. `run` uses `--` to separate Probe options from the target command. Default `attach` observes the specified PID without taking ownership of it. `--attach-job` is intentionally unsupported in this release and fails closed; attach does not establish authority over, or isolation of, the target.
 
-```bash
-"$probe" run --output ./evidence -- <command> [args...]
-"$probe" attach --pid <PID> --output ./evidence
-"$probe" summarize --bundle ./evidence/<run-id>
+With `$probe` set as in Quick start, inspect the full options in PowerShell:
+
+```powershell
+& $probe --help
+& $probe run --help
+& $probe attach --help
+& $probe summarize --help
 ```
 
-`--max-retained-process-handles` is bounded (default `4096`). If that bound prevents retention, the bundle records explicit degradation rather than inventing terminal measurements.
+Or in a POSIX shell:
+
+```sh
+"$probe" --help
+"$probe" run --help
+"$probe" attach --help
+"$probe" summarize --help
+```
 
 ## What you get
 
@@ -88,9 +145,11 @@ A completed bundle normally contains raw `processes.ndjson`, `samples.ndjson`, a
 
 ## Cross-platform behavior
 
-PerformanceEvidenceProbe does not invent equivalence across operating systems: observed zero remains zero; unavailable values are explicit; semantically different measurements are not silently substituted.
+For optional process, collector, and system counters covered by the availability contract, observed zero remains zero, unavailable values are explicit, and semantically different measurements are not silently substituted. This guarantee does not cover every numeric field in the draft format.
 
 **Qualified scope:** Windows x86_64 provides full-accounting `run` and observation-only `attach`. Linux x86_64 and macOS arm64 provide bounded direct-root `run` and observation-only single-root `attach`. Linux and macOS do not claim Job accounting, containment, descendant or process-tree closure, complete process-set totals, Windows-equivalent memory/handle/I/O/host metrics, or synthetic signal exit codes. Their omissions are typed evidence, not numeric zero.
+
+**Linux/macOS timing limitation in v0.2.0:** raw monotonic/scheduled time and sampling-delay fields are fixed at `0`, and sample gaps are absent. The resulting summary `elapsed_ns` and `max_sample_gap_exact_ns` values are not measured duration or gap evidence. Do not interpret those zeros as observed zero time or use them for timing comparisons.
 
 GitHub-hosted Windows, Linux, and macOS CI verifies canonical repository checks. A green hosted run is not itself a real-machine runtime qualification claim.
 
@@ -106,9 +165,9 @@ The raw evidence streams are the primary record:
 
 Raw evidence records what the collector observed. It does **not** prove that the workload is correct, representative, complete, or suitable for a particular performance claim. A sampled peak is not an operating-system lifetime peak; a process-set working-set sum is not unique physical memory; and later analysis or qualification remains the consumer's responsibility.
 
-## Why no built-in dashboard?
+## Dashboard-independent collection
 
-PerformanceEvidenceProbe intentionally owns observation and deterministic evidence production, not visualization or interpretation:
+The core collector is dashboard-independent: canonical raw evidence comes first, and collection does not require a visualization layer.
 
 ```text
 observation → canonical machine-readable evidence → deterministic Probe-derived summary → optional downstream view
@@ -116,27 +175,29 @@ observation → canonical machine-readable evidence → deterministic Probe-deri
 
 The raw streams and context metadata are canonical Probe evidence. `summary.json` is Probe-derived output reconstructed from those saved records. Scripts, `jq`, spreadsheets, data-analysis and visualization systems, or AI assistants can consume the bundle to make tables, charts, explanations, and diagnoses. Those outputs are downstream views: a chart, an AI interpretation, or a performance conclusion is not canonical Probe evidence.
 
+This boundary permits an optional official frontend or third-party dashboard without changing the evidence authority model. No dashboard is included or promised by this release.
+
 ## Platform details
 
 ### Windows
 
 Launch mode creates the target suspended, assigns it to a Windows Job with zero limit flags, verifies membership, then resumes it. The Job is used for containment observation and accounting, not performance control. In particular, the collector does not enable `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`; closing or crashing the collector is not configured to terminate the target.
 
-Default attach on every qualified platform opens an observation handle for the specified PID and waits for it to exit. It does not create a Probe Job or assign the target to one:
+On Windows, default attach retains an observation handle for the specified PID and waits for it to exit. It does not create a Probe Job or assign the target to one.
 
-```bash
-$probe attach --pid 12345 --output ./evidence-output
-```
-
-`--attach-job` is intentionally unsupported in this release and fails closed. Do not use attach as a claim of authority over, or isolation of, the target process.
+On Windows, `run --max-retained-process-handles` bounds process-handle retention (default `4096`, must be positive). If the bound prevents retention, the bundle records explicit degradation rather than inventing terminal measurements. This is not a cross-platform descendant-collection setting.
 
 ### Linux
 
 The Linux x86_64 collector observes only a directly owned `run` root or one attached root. It does not claim a Job analogue, descendant accounting, process-tree closure, complete process-set totals, or Windows-equivalent memory, handle, I/O, or host metrics.
 
+Linux `run` samples the root at nominal 500 ms intervals and waits for the directly owned root to exit. Linux `attach` captures a single bounded observation and returns without waiting for target exit; it is not a continuous monitor.
+
 ### macOS
 
 The macOS arm64 collector has the same bounded direct-root and single-root observation boundary. It does not treat `phys_footprint`, file descriptors, or platform counters as substitutes for Windows private bytes, handles, I/O, or commit metrics.
+
+In v0.2.0, macOS captures a single live sample rather than a periodic time series. `run` then waits for its directly owned root's terminal outcome; `attach` returns after the bounded observation and does not wait for target exit. Do not infer whole-run peaks or totals from that sample.
 
 ## Guarantees and non-goals
 
@@ -145,20 +206,20 @@ The collector has a bounded, single-owner NDJSON writer. Each completed record i
 PerformanceEvidenceProbe is **not**:
 
 - a correctness proof, benchmark certification authority, or workload-qualification framework;
-- a profiler, debugger, performance-tuning tool, or automatic diagnosis engine;
+- a sampling/call-stack profiler, debugger, performance-tuning tool, or automatic diagnosis engine;
 - a claim that measured software is correct or a workload is representative;
 - an OS lifetime-peak monitor;
 - EvidenceRegistry or a completed EvidenceRegistry integration.
 
 ## Limitations and privacy
 
-The schema is a draft, not a frozen interchange contract. The Windows full-accounting collector is qualified on Windows x64; macOS support is limited to the narrower qualification stated above. Advanced sensors, other platform collectors, calibration, and independent qualification are out of scope. Process-tree observation can be incomplete because of races, access restrictions, and bounded retained handles. An interrupted collector can leave parseable raw streams without a completed summary or metadata set.
+The schema is a draft, not a frozen interchange contract. Windows x86_64 has the documented full-accounting scope; **both Linux x86_64 and macOS arm64** have the narrower direct-root / observation-only scope above. Those are deliberate evidence boundaries, not equivalent full-accounting implementations. Other OS/architecture combinations are unqualified. Advanced sensors, calibration, and performance certification are outside the current scope. Windows process-tree observation can be incomplete because of races, access restrictions, and bounded retained handles; Linux and macOS do not claim descendant discovery. An interrupted collector can leave parseable raw streams without a completed summary or metadata set.
 
-Evidence bundles can include timestamps, PIDs, executable paths where available, and host OS/hardware characteristics. Review a bundle before sharing it. Full current limits are in [Known limitations](docs/KNOWN-LIMITATIONS.md).
+Evidence bundles can include timestamps, PIDs, executable paths where available, and host OS/hardware characteristics. Linux and macOS `run` also save launch arguments in `platform.json`; do not put secrets in those arguments. Review a bundle before sharing it. Full current limits are in [Known limitations](docs/KNOWN-LIMITATIONS.md).
 
 ## Build from source
 
-The repository vendors its Rust dependencies and selects its toolchain through `rust-toolchain.toml`. Build from a checkout only when you need a source build rather than a published v0.2.0 binary:
+The repository vendors its Rust dependencies in [`.vendor/`](.vendor/), configured by [`.cargo/config.toml`](.cargo/config.toml), and selects its toolchain through `rust-toolchain.toml`. Install Rust via [rustup](https://rustup.rs/) and the native build tools for your OS (Windows: Visual Studio Build Tools with Desktop development with C++; Linux: a C compiler/linker; macOS: Xcode Command Line Tools). On Windows, run the following in **Git Bash** with those build tools available. On Linux/macOS, use Bash. From the repository root:
 
 ```bash
 bash scripts/cargo-local.sh build --release --locked --bin perf-probe
@@ -192,7 +253,7 @@ The project licenses govern PerformanceEvidenceProbe itself. Running the Probe a
 
 ## License / third-party notices
 
-PerformanceEvidenceProbe is licensed under either [Apache License, Version 2.0](LICENSE-APACHE) or [MIT License](LICENSE-MIT), at your option. Third-party dependencies retain their own licenses; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the relevant notices and redistribution guidance. See also the [contribution policy](CONTRIBUTING.md) and [license/provenance audit](docs/LICENSE-AUDIT-2026-09-04.md).
+PerformanceEvidenceProbe is licensed under either [Apache License, Version 2.0](LICENSE-APACHE) or [MIT License](LICENSE-MIT), at your option. Third-party dependencies retain their own licenses; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for notices and redistribution guidance. The [v0.2.0 release](https://github.com/DwarfM42/PerformanceEvidenceProbe/releases/tag/v0.2.0) includes both project license files and the third-party notices. See also the [contribution policy](CONTRIBUTING.md) and the **historical v0.1.0** [license/provenance audit](docs/LICENSE-AUDIT-2026-09-04.md).
 
 ## Sources
 

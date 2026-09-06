@@ -1,7 +1,7 @@
 # Documentation map
 
 The root [README](../README.md) is the starting point for users. It states the
-current qualified platform, exact CLI workflow, safety boundary, and public
+current qualified platforms, exact CLI workflow, safety boundary, and public
 claim limits.
 
 | Document | Classification | Use it for |
@@ -9,7 +9,8 @@ claim limits.
 | [Evidence schema draft](EVIDENCE-SCHEMA-DRAFT.md) | Current public technical reference | Bundle layout, raw/derived distinction, recovery behavior, and privacy considerations. |
 | [Known limitations](KNOWN-LIMITATIONS.md) | Current public technical reference | Qualified scope and explicit limits that consumers must preserve. |
 | [v0.2.0 release notes](RELEASE-NOTES-v0.2.0.md) | Current release note | Qualified platform scope, evidence-contract boundaries, and intended release artifact. |
-| [Public-claim audit](PUBLIC-CLAIM-AUDIT-2026-09-04.md) | Historical v0.1.0 record | Claim classifications, canonical test-count reconciliation, and the no-dashboard authority boundary. |
+| [Public-claim audit](PUBLIC-CLAIM-AUDIT-2026-09-04.md) | Historical v0.1.0 record | Claim classifications, canonical test-count reconciliation, and the historical dashboard discussion; current visualization policy is in the root README. |
+| [Cross-platform contract qualification](CROSS-PLATFORM-CONTRACT-QUALIFICATION.md) | Historical contract record | Common-contract availability rules before current Linux/macOS runtime qualification; not the current support matrix. |
 | [Milestone 1 architecture](MILESTONE-1-ARCHITECTURE.md) | Useful implementation note | Collector ownership, sampling, writer, and summary design. |
 | [Milestone 1 implementation contract v0.1](Performance%20Evidence%20Probe%20Milestone%201%20Implementation%20Contract%20v0.1.md) | Historical but valuable technical contract | Detailed Windows Milestone 1 requirements and rationale. Current source, tests, and user-facing documents take precedence where it differs. |
 | [Repository closeout](REPOSITORY-CLOSEOUT.md) | Historical record | The August 2026 source-control baseline and its then-current verification. |
