@@ -1,3 +1,5 @@
+![PerformanceEvidenceProbe — Probe app performance without touching your code.](assets/PEP_ReadmeBanner.png)
+
 # PerformanceEvidenceProbe
 
 [![Windows CI](https://github.com/DwarfM42/PerformanceEvidenceProbe/actions/workflows/windows-ci.yml/badge.svg?branch=main)](https://github.com/DwarfM42/PerformanceEvidenceProbe/actions/workflows/windows-ci.yml)
